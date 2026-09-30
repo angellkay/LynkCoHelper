@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-领克App 每日任务编排入口（签到 + 分享 + 积分查询 + 结果通知）。
-"""
+"""领克App 每日任务编排入口。"""
 import json
 import os
 import sys
@@ -9,11 +7,7 @@ import time
 
 from lynkco_common import mask_sensitive
 from lynkco_login import load_token
-from lynkco_notify import (
-    build_markdown_report,
-    send_bark_notification,
-    send_pushplus_notification,
-)
+from lynkco_notify import build_markdown_report, send_telegram_notification
 from lynkco_sign import LynkCoSignClient
 from lynkco_share import LynkCoShareClient
 
@@ -34,12 +28,7 @@ def run_daily_tasks(token: str, do_share: bool = True) -> dict:
     result["day_info"] = day_info
     already_signed = (day_info.get("data") or {}).get("signStatus") == 1
     result["already_signed"] = already_signed
-
-    if already_signed:
-        result["sign_result"] = None
-    else:
-        result["sign_result"] = sign_client.do_sign()
-
+    result["sign_result"] = None if already_signed else sign_client.do_sign()
     result["continue_info"] = sign_client.get_continue_days()
 
     if do_share:
@@ -59,7 +48,6 @@ def run_daily_tasks(token: str, do_share: bool = True) -> dict:
 
 def run_and_notify() -> dict:
     token = load_token()
-
     print("=== 执行每日任务（签到+分享）===")
     result = run_daily_tasks(token, do_share=True)
     print(json.dumps(mask_sensitive(result), ensure_ascii=False, indent=2))
@@ -69,29 +57,17 @@ def run_and_notify() -> dict:
     print(markdown_body)
 
     notify_results = {}
-
     try:
-        notify_results["bark"] = send_bark_notification(
-            title="领克App · 每日任务",
-            markdown_body=markdown_body,
-            icon=os.environ.get("LYNKCO_BARK_ICON", "").strip(),
-        )
-    except Exception as e:
-        print(f"[警告] Bark 推送失败（不影响签到/分享结果）: {e}")
-        notify_results["bark"] = {"skipped": True, "error": str(e)}
-
-    try:
-        notify_results["pushplus"] = send_pushplus_notification(
+        notify_results["telegram"] = send_telegram_notification(
             title="领克App · 每日任务",
             markdown_body=markdown_body,
         )
     except Exception as e:
-        print(f"[警告] PushPlus 推送失败（不影响签到/分享结果）: {e}")
-        notify_results["pushplus"] = {"skipped": True, "error": str(e)}
+        print(f"[警告] Telegram 推送失败（不影响签到/分享结果）: {e}")
+        notify_results["telegram"] = {"skipped": True, "error": str(e)}
 
     print("\n=== 推送结果 ===")
     print(json.dumps(mask_sensitive(notify_results), ensure_ascii=False, indent=2))
-
     result["notify_result"] = notify_results
     return result
 
