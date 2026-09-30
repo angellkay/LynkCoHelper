@@ -1,21 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
-领克每日任务通知工具。
-
-支持：
-    - Bark：LYNKCO_BARK_KEY（可选）
-    - PushPlus 微信：PUSHPLUS_TOKEN（可选）
-
-未配置对应推送渠道时自动跳过，不影响签到/分享任务。
-"""
+"""领克每日任务通知工具：支持 Telegram（可选）。"""
 import os
-
 import requests
-
 from lynkco_common import load_env_data
 
-BARK_DEFAULT_BASE = "https://api.day.app"
-PUSHPLUS_DEFAULT_BASE = "https://www.pushplus.plus/send"
+TELEGRAM_DEFAULT_BASE = "https://api.telegram.org"
 
 
 def _extract_point(energy_resp: dict) -> str:
@@ -24,7 +13,6 @@ def _extract_point(energy_resp: dict) -> str:
 
 def build_markdown_report(result: dict) -> str:
     lines = []
-
     if result.get("already_signed"):
         lines.append("### ℹ️ 签到")
         lines.append("- 今日已签到，无需重复签到")
@@ -70,73 +58,38 @@ def build_markdown_report(result: dict) -> str:
     except (ValueError, TypeError):
         delta_str = ""
     lines.append(f"- {point_before} → **{point_after}** {delta_str}".rstrip())
-
     return "\n".join(lines)
 
 
-def send_bark_notification(title: str, markdown_body: str, group: str = "LynkCo签到",
-                            icon: str = None, level: str = "active",
-                            bark_key: str = None) -> dict:
-    """通过 Bark 发送 Markdown 通知。未配置 Bark Key 时跳过。"""
-    bark_key = (
-        bark_key
-        or os.environ.get("LYNKCO_BARK_KEY", "").strip()
-        or load_env_data().get("notify", {}).get("barkKey", "").strip()
+def send_telegram_notification(title: str, markdown_body: str,
+                               bot_token: str = None,
+                               chat_id: str = None) -> dict:
+    """通过 Telegram Bot 发送 Markdown 通知；未配置则跳过。"""
+    bot_token = (
+        bot_token
+        or os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+        or load_env_data().get("notify", {}).get("telegramBotToken", "").strip()
     )
-    if not bark_key:
-        print("[提示] 未配置 LYNKCO_BARK_KEY，跳过 Bark 推送。")
+    chat_id = (
+        chat_id
+        or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        or load_env_data().get("notify", {}).get("telegramChatId", "").strip()
+    )
+    if not bot_token or not chat_id:
+        print("[提示] 未完整配置 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID，跳过 Telegram 推送。")
         return {"skipped": True}
 
-    url = f"{BARK_DEFAULT_BASE}/{bark_key}"
+    text = f"*{title}*\n\n{markdown_body}"
+    url = f"{TELEGRAM_DEFAULT_BASE}/bot{bot_token}/sendMessage"
     payload = {
-        "title": title,
-        "markdown": markdown_body,
-        "group": group,
-        "level": level,
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
     }
-    if icon:
-        payload["icon"] = icon
-
-    resp = requests.post(
-        url,
-        json=payload,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-def send_pushplus_notification(title: str, markdown_body: str,
-                               pushplus_token: str = None) -> dict:
-    """
-    通过 PushPlus 微信渠道发送 Markdown 通知。
-    token 不传时读取 PUSHPLUS_TOKEN，未配置则跳过。
-    """
-    pushplus_token = (
-        pushplus_token
-        or os.environ.get("PUSHPLUS_TOKEN", "").strip()
-        or load_env_data().get("notify", {}).get("pushplusToken", "").strip()
-    )
-    if not pushplus_token:
-        print("[提示] 未配置 PUSHPLUS_TOKEN，跳过 PushPlus 推送。")
-        return {"skipped": True}
-
-    payload = {
-        "token": pushplus_token,
-        "title": title,
-        "content": markdown_body,
-        "template": "markdown",
-        "channel": "wechat",
-    }
-    resp = requests.post(
-        PUSHPLUS_DEFAULT_BASE,
-        json=payload,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        timeout=30,
-    )
+    resp = requests.post(url, json=payload, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    if data.get("code") != 200:
-        raise RuntimeError(f"PushPlus 返回异常: {data}")
+    if not data.get("ok"):
+        raise RuntimeError(f"Telegram 返回异常: {data}")
     return data
