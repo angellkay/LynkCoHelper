@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Bark 推送通知工具模块，提供两个通用能力（不含任何业务逻辑，供
-lynkco_daily_tasks.py 按需调用）：
-    - build_markdown_report(result)：把任务结果字典组装成 Bark Markdown 文案；
-    - send_bark_notification(...)：把一段 Markdown 文案推送到 Bark。
+领克每日任务通知工具。
 
-配置方式：环境变量 LYNKCO_BARK_KEY，或 env.json 的 notify.barkKey 字段
-（Bark App「我的」页面可查看），未配置时跳过推送并打印提示，不抛异常。
+支持：
+    - Bark：LYNKCO_BARK_KEY（可选）
+    - PushPlus 微信：PUSHPLUS_TOKEN（可选）
+
+未配置对应推送渠道时自动跳过，不影响签到/分享任务。
 """
 import os
 
@@ -15,21 +15,16 @@ import requests
 from lynkco_common import load_env_data
 
 BARK_DEFAULT_BASE = "https://api.day.app"
+PUSHPLUS_DEFAULT_BASE = "https://www.pushplus.plus/send"
 
 
 def _extract_point(energy_resp: dict) -> str:
-    """从 myEnergy 响应中安全地取出 point 字段，取不到时返回 '?'。"""
     return str((energy_resp.get("data") or {}).get("point", "?"))
 
 
 def build_markdown_report(result: dict) -> str:
-    """
-    把 lynkco_daily_tasks.run_daily_tasks() 返回的结果字典组装成一段
-    Bark markdown 推送内容。
-    """
     lines = []
 
-    # --- 签到 ---
     if result.get("already_signed"):
         lines.append("### ℹ️ 签到")
         lines.append("- 今日已签到，无需重复签到")
@@ -54,7 +49,6 @@ def build_markdown_report(result: dict) -> str:
     if sign_card is not None:
         lines.append(f"- 签到卡剩余：**{sign_card} 张**")
 
-    # --- 分享 ---
     share_result = result.get("share_result")
     if share_result is not None:
         lines.append("\n### 🔗 分享任务")
@@ -67,7 +61,6 @@ def build_markdown_report(result: dict) -> str:
             detail = share_result.get("detail") or {}
             lines.append(f"- 状态：**失败**（{detail.get('message', '详情见日志')}）")
 
-    # --- 积分变化 ---
     point_before = _extract_point(result.get("energy_before") or {})
     point_after = _extract_point(result.get("energy_after") or {})
     lines.append("\n### 💰 积分变化")
@@ -84,18 +77,17 @@ def build_markdown_report(result: dict) -> str:
 def send_bark_notification(title: str, markdown_body: str, group: str = "LynkCo签到",
                             icon: str = None, level: str = "active",
                             bark_key: str = None) -> dict:
-    """
-    通过 Bark 发送一条 Markdown 格式的推送通知。level 可选
-    "critical"/"active"/"timeSensitive"/"passive"。bark_key 不传则读取
-    环境变量 LYNKCO_BARK_KEY，未配置时返回 {"skipped": True} 且不抛异常。
-    """
-    bark_key = bark_key or os.environ.get("LYNKCO_BARK_KEY", "").strip() or load_env_data().get("notify", {}).get("barkKey", "").strip()
+    """通过 Bark 发送 Markdown 通知。未配置 Bark Key 时跳过。"""
+    bark_key = (
+        bark_key
+        or os.environ.get("LYNKCO_BARK_KEY", "").strip()
+        or load_env_data().get("notify", {}).get("barkKey", "").strip()
+    )
     if not bark_key:
         print("[提示] 未配置 LYNKCO_BARK_KEY，跳过 Bark 推送。")
         return {"skipped": True}
 
     url = f"{BARK_DEFAULT_BASE}/{bark_key}"
-
     payload = {
         "title": title,
         "markdown": markdown_body,
@@ -106,9 +98,45 @@ def send_bark_notification(title: str, markdown_body: str, group: str = "LynkCo�
         payload["icon"] = icon
 
     resp = requests.post(
-        url, json=payload,
+        url,
+        json=payload,
         headers={"Content-Type": "application/json; charset=utf-8"},
         timeout=30,
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def send_pushplus_notification(title: str, markdown_body: str,
+                               pushplus_token: str = None) -> dict:
+    """
+    通过 PushPlus 微信渠道发送 Markdown 通知。
+    token 不传时读取 PUSHPLUS_TOKEN，未配置则跳过。
+    """
+    pushplus_token = (
+        pushplus_token
+        or os.environ.get("PUSHPLUS_TOKEN", "").strip()
+        or load_env_data().get("notify", {}).get("pushplusToken", "").strip()
+    )
+    if not pushplus_token:
+        print("[提示] 未配置 PUSHPLUS_TOKEN，跳过 PushPlus 推送。")
+        return {"skipped": True}
+
+    payload = {
+        "token": pushplus_token,
+        "title": title,
+        "content": markdown_body,
+        "template": "markdown",
+        "channel": "wechat",
+    }
+    resp = requests.post(
+        PUSHPLUS_DEFAULT_BASE,
+        json=payload,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("code") != 200:
+        raise RuntimeError(f"PushPlus 返回异常: {data}")
+    return data
