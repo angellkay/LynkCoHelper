@@ -3,8 +3,8 @@ name: LynkCoHelperRunner
 
 on:
   schedule:
-    # 每天北京时间 00:01 执行；GitHub 调度可能有延迟
-    - cron: "1 0 * * *"
+    # 每天北京时间 02:00 执行；GitHub 调度可能有延迟
+    - cron: "0 2 * * *"
       timezone: "Asia/Shanghai"
   workflow_dispatch:
 
