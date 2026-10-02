@@ -63,6 +63,35 @@ def _project_days(next_energy: str, daily_growth):
         return None
 
 
+def _extract_flow_records(resp: dict) -> list:
+    data = resp.get("data") or {}
+    records = data if isinstance(data, list) else (data.get("records") or data.get("list") or data.get("rows") or [])
+    return records if isinstance(records, list) else []
+
+
+def _extract_flow_details(resp: dict) -> list:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    details = []
+    for item in _extract_flow_records(resp):
+        if not isinstance(item, dict):
+            continue
+        date_value = str(item.get("createTime") or item.get("time") or item.get("date") or "")
+        if date_value and not date_value.startswith(today):
+            continue
+        amount = item.get("growth", item.get("energyNum", item.get("number", item.get("change"))))
+        if amount is None:
+            continue
+        reason = item.get("remark") or item.get("reason") or item.get("name") or item.get("title") or item.get("typeName") or "能量体变动"
+        try:
+            amount = int(amount)
+        except (ValueError, TypeError):
+            continue
+        details.append((str(reason), amount))
+    return details
+
+
 def build_markdown_report(result: dict) -> str:
     lines = []
     if result.get("already_signed"):
@@ -111,6 +140,11 @@ def build_markdown_report(result: dict) -> str:
     growth_before = _extract_growth(result.get("member_before") or {})
     growth_delta = _growth_delta(result.get("member_before") or {}, result.get("member_after") or {})
     projected_days = _project_days(next_energy, growth_delta)
+    history = result.get("energy_history") or []
+    history_values = [int(x.get("growth")) for x in history if isinstance(x, dict) and str(x.get("growth", "")).lstrip("-").isdigit()]
+    avg_growth = (sum(history_values) / len(history_values)) if history_values else None
+    avg_projected_days = _project_days(next_energy, avg_growth)
+    flow_details = _extract_flow_details(result.get("energy_growth_flow") or {})
 
     lines.append("\n### 💰 Co积分")
     try:
@@ -137,6 +171,15 @@ def build_markdown_report(result: dict) -> str:
             lines.append("- 按今日增幅预计：**今日无增加，暂无法估算**")
         elif growth_delta is not None and growth_delta < 0:
             lines.append("- 按今日增幅预计：**今日为负增长，暂无法估算**")
+    if avg_growth is not None:
+        lines.append(f"- 近7天平均：**+{avg_growth:.2f}/天**")
+        if avg_projected_days is not None:
+            lines.append(f"- 按近7天平均预计：**约 {avg_projected_days} 天**")
+    if flow_details:
+        lines.append("- 今日增加明细：")
+        for reason, amount in flow_details:
+            sign = "+" if amount >= 0 else ""
+            lines.append(f"  - {reason}：**{sign}{amount}**")
 
     return "\n".join(lines)
 
