@@ -1,6 +1,9 @@
 # 每日自动执行领克App签到 + 分享，并通过 Telegram 推送结果。
 name: LynkCoHelperRunner
 
+permissions:
+  contents: write
+
 on:
   schedule:
     # 每天北京时间 02:00 执行；GitHub 调度可能有延迟
