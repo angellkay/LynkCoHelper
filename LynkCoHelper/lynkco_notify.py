@@ -2,7 +2,7 @@
 """领克每日任务通知工具：支持 Telegram（可选）。"""
 import os
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from lynkco_common import load_env_data
@@ -131,9 +131,10 @@ def _item_date_in_shanghai(item: dict):
 
     normalized = text.replace("/", "-")
     try:
-        return datetime.fromisoformat(normalized.replace("Z", "+00:00")).astimezone(
-            ZoneInfo("Asia/Shanghai")
-        ).date()
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(ZoneInfo("Asia/Shanghai"))
+        return parsed.date()
     except ValueError:
         try:
             return datetime.strptime(normalized[:19], "%Y-%m-%d %H:%M:%S").date()
@@ -235,16 +236,14 @@ def build_markdown_report(result: dict) -> str:
 
     task_list = _extract_task_list(result.get("task_list") or {})
     if task_list:
-        lines.append("
-### 📋 签到任务")
+        lines.append("\n### 📋 签到任务")
         for task in task_list:
             if isinstance(task, dict):
                 lines.append(_format_task_line(task))
 
     share_result = result.get("share_result")
     if share_result is not None:
-        lines.append("
-### 🔗 分享任务")
+        lines.append("\n### 🔗 分享任务")
         if share_result.get("ok"):
             lines.append("- 状态：**上报成功**")
             article_title = share_result.get("articleTitle")
@@ -263,14 +262,13 @@ def build_markdown_report(result: dict) -> str:
     energy_level = _extract_energy_level(result.get("member_after") or {})
     next_energy = _extract_next_energy(result.get("energy_grade_after") or {})
 
-    growth_before = _extract_growth(result.get("member_before") or {})
+    flow_details = _extract_flow_details(result.get("energy_growth_flow") or {})
+    flow_growth_total = _flow_growth_total(flow_details)
+
     run_growth_delta = _growth_delta(
         result.get("member_before") or {},
         result.get("member_after") or {},
     )
-
-    flow_details = _extract_flow_details(result.get("energy_growth_flow") or {})
-    flow_growth_total = _flow_growth_total(flow_details)
 
     # “今日增加”优先使用今天实际的能量流水总和。
     # 这样即使脚本在奖励到账后再次运行，也不会误报为 0。
@@ -288,8 +286,7 @@ def build_markdown_report(result: dict) -> str:
     avg_growth = (sum(history_values) / len(history_values)) if history_values else None
     avg_projected_days = _project_days(next_energy, avg_growth)
 
-    lines.append("
-### 💰 Co积分")
+    lines.append("\n### 💰 Co积分")
     try:
         delta = int(point_after) - int(point_before)
         delta_str = (
@@ -302,12 +299,18 @@ def build_markdown_report(result: dict) -> str:
     lines.append(f"- 累计获得：**{income_point}**")
     lines.append(f"- 待过期：**{expire_point}**")
 
-    lines.append("
-### ⚡ 能量体")
+    lines.append("\n### ⚡ 能量体")
     lines.append(f"- 当前：**{growth}**")
     if daily_growth is not None:
         sign = "+" if daily_growth >= 0 else ""
-        lines.append(f"- 今日增加：**{sign}{daily_growth}**（{growth_before} → {growth}）")
+        try:
+            current_value = int(growth)
+            start_of_day = current_value - int(daily_growth)
+            lines.append(
+                f"- 今日增加：**{sign}{daily_growth}**（{start_of_day} → {growth}）"
+            )
+        except (ValueError, TypeError):
+            lines.append(f"- 今日增加：**{sign}{daily_growth}**")
     if energy_level != "?":
         lines.append(f"- 等级：**{energy_level}**")
     if next_energy != "?":
@@ -329,8 +332,7 @@ def build_markdown_report(result: dict) -> str:
             sign = "+" if amount >= 0 else ""
             lines.append(f"  - {reason}：**{sign}{amount}**")
 
-    return "
-".join(lines)
+    return "\n".join(lines)
 
 
 def send_telegram_notification(title: str, markdown_body: str,
