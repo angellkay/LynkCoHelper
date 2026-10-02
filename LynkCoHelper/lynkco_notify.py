@@ -7,13 +7,39 @@ from lynkco_common import load_env_data
 TELEGRAM_DEFAULT_BASE = "https://api.telegram.org"
 
 
-def _extract_point(energy_resp: dict) -> str:
-    return str((energy_resp.get("data") or {}).get("point", "?"))
+def _extract_point(resp: dict) -> str:
+    return str((resp.get("data") or {}).get("point", "?"))
 
 
-def _extract_income_point(energy_resp: dict) -> str:
-    """提取 Co币累计获得值。"""
-    return str((energy_resp.get("data") or {}).get("incomePoint", "?"))
+def _extract_income_point(resp: dict) -> str:
+    return str((resp.get("data") or {}).get("incomePoint", "?"))
+
+
+def _extract_expire_point(resp: dict) -> str:
+    return str((resp.get("data") or {}).get("expirePoint", "?"))
+
+
+def _extract_growth(resp: dict) -> str:
+    data = resp.get("data") or {}
+    account_level = data.get("accountLevelVo") or {}
+    return str(account_level.get("growth", "?"))
+
+
+def _extract_energy_level(resp: dict) -> str:
+    data = resp.get("data") or {}
+    account_level = data.get("accountLevelVo") or {}
+    name = account_level.get("name")
+    num = account_level.get("num")
+    if name:
+        return str(name)
+    if num is not None:
+        return str(num)
+    return "?"
+
+
+def _extract_next_energy(resp: dict) -> str:
+    data = resp.get("data") or {}
+    return str(data.get("nextEnergyNum", "?"))
 
 
 def build_markdown_report(result: dict) -> str:
@@ -57,15 +83,27 @@ def build_markdown_report(result: dict) -> str:
     point_before = _extract_point(result.get("energy_before") or {})
     point_after = _extract_point(result.get("energy_after") or {})
     income_point = _extract_income_point(result.get("energy_after") or {})
+    expire_point = _extract_expire_point(result.get("energy_after") or {})
+    growth = _extract_growth(result.get("energy_after") or {})
+    energy_level = _extract_energy_level(result.get("energy_after") or {})
+    next_energy = _extract_next_energy(result.get("energy_grade_after") or {})
 
-    lines.append("\n### 💰 积分变化")
+    lines.append("\n### 💰 Co积分")
     try:
         delta = int(point_after) - int(point_before)
         delta_str = f"（+{delta}）" if delta > 0 else (f"（{delta}）" if delta < 0 else "（无变化）")
     except (ValueError, TypeError):
         delta_str = ""
     lines.append(f"- {point_before} → **{point_after}** {delta_str}".rstrip())
-    lines.append(f"- Co币累计获得：**{income_point}**")
+    lines.append(f"- 累计获得：**{income_point}**")
+    lines.append(f"- 待过期：**{expire_point}**")
+
+    lines.append("\n### ⚡ 能量体")
+    lines.append(f"- 当前：**{growth}**")
+    if energy_level != "?":
+        lines.append(f"- 等级：**{energy_level}**")
+    if next_energy != "?":
+        lines.append(f"- 距离下一级：**{next_energy}**")
 
     return "\n".join(lines)
 
