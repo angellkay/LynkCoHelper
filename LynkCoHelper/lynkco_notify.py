@@ -83,13 +83,48 @@ def _extract_flow_details(resp: dict) -> list:
         amount = item.get("growth", item.get("energyNum", item.get("number", item.get("change"))))
         if amount is None:
             continue
-        reason = item.get("remark") or item.get("reason") or item.get("name") or item.get("title") or item.get("typeName") or "能量体变动"
+        reason = item.get("businessName") or item.get("remark") or item.get("reason") or item.get("name") or item.get("title") or item.get("typeName") or "能量体变动"
         try:
             amount = int(amount)
         except (ValueError, TypeError):
             continue
         details.append((str(reason), amount))
     return details
+
+
+
+def _extract_task_list(resp: dict) -> list:
+    data = resp.get("data") or []
+    return data if isinstance(data, list) else []
+
+
+def _task_progress(task: dict):
+    try:
+        process = int(task.get("taskProcess"))
+    except (ValueError, TypeError):
+        return None
+    import re
+    match = re.search(r"(\\d+)", str(task.get("taskName") or ""))
+    target = int(match.group(1)) if match else None
+    return process, target
+
+
+def _format_task_line(task: dict) -> str:
+    name = str(task.get("taskName") or "签到任务")
+    reward = "、".join(str(x) for x in (task.get("rewardContent") or []) if x is not None)
+    progress = _task_progress(task)
+    if progress and progress[1] is not None:
+        process, target = progress
+        remaining = max(target - process, 0)
+        status = " ✅" if process >= target else f"（还差 {remaining}）"
+        line = f"- {name}：**{process}/{target}**{status}"
+    elif progress:
+        line = f"- {name}：**{progress[0]}**"
+    else:
+        line = f"- {name}"
+    if reward:
+        line += f" · 奖励：{reward}"
+    return line
 
 
 def build_markdown_report(result: dict) -> str:
@@ -117,6 +152,13 @@ def build_markdown_report(result: dict) -> str:
         lines.append(f"- 连续签到：**{continue_days} 天**")
     if sign_card is not None:
         lines.append(f"- 签到卡剩余：**{sign_card} 张**")
+
+    task_list = _extract_task_list(result.get("task_list") or {})
+    if task_list:
+        lines.append("\n### 📋 签到任务")
+        for task in task_list:
+            if isinstance(task, dict):
+                lines.append(_format_task_line(task))
 
     share_result = result.get("share_result")
     if share_result is not None:
