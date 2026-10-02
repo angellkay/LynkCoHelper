@@ -148,8 +148,7 @@ def run_and_notify() -> dict:
     print(json.dumps(mask_sensitive(result), ensure_ascii=False, indent=2))
 
     markdown_body = build_markdown_report(result)
-    print("
-=== 推送内容预览 ===")
+    print("\n=== 推送内容预览 ===")
     print(markdown_body)
 
     notify_results = {}
@@ -162,8 +161,7 @@ def run_and_notify() -> dict:
         print(f"[警告] Telegram 推送失败（不影响签到/分享结果）: {e}")
         notify_results["telegram"] = {"skipped": True, "error": str(e)}
 
-    print("
-=== 推送结果 ===")
+    print("\n=== 推送结果 ===")
     print(json.dumps(mask_sensitive(notify_results), ensure_ascii=False, indent=2))
     result["notify_result"] = notify_results
     return result
