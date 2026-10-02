@@ -12,7 +12,7 @@ def _extract_point(energy_resp: dict) -> str:
 
 
 def _extract_income_point(energy_resp: dict) -> str:
-    """提取 Co积分累计获得值；不是当前能量体余额。"""
+    """提取 Co币累计获得值。"""
     return str((energy_resp.get("data") or {}).get("incomePoint", "?"))
 
 
@@ -65,10 +65,7 @@ def build_markdown_report(result: dict) -> str:
     except (ValueError, TypeError):
         delta_str = ""
     lines.append(f"- {point_before} → **{point_after}** {delta_str}".rstrip())
-
-    lines.append("\n### ⚡ 能量体")
-    lines.append(f"- 当前余额：**{point_after}**")
-    lines.append(f"- Co积分累计获得：**{income_point}**")
+    lines.append(f"- Co币累计获得：**{income_point}**")
 
     return "\n".join(lines)
 
