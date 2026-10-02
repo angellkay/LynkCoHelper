@@ -42,6 +42,27 @@ def _extract_next_energy(resp: dict) -> str:
     return str(data.get("nextEnergyNum", "?"))
 
 
+def _growth_delta(before_resp: dict, after_resp: dict):
+    try:
+        before = int(_extract_growth(before_resp))
+        after = int(_extract_growth(after_resp))
+        return after - before
+    except (ValueError, TypeError):
+        return None
+
+
+def _project_days(next_energy: str, daily_growth):
+    try:
+        remaining = int(next_energy)
+        if remaining <= 0:
+            return 0
+        if daily_growth is None or daily_growth <= 0:
+            return None
+        return (remaining + daily_growth - 1) // daily_growth
+    except (ValueError, TypeError):
+        return None
+
+
 def build_markdown_report(result: dict) -> str:
     lines = []
     if result.get("already_signed"):
@@ -87,6 +108,9 @@ def build_markdown_report(result: dict) -> str:
     growth = _extract_growth(result.get("energy_after") or {})
     energy_level = _extract_energy_level(result.get("energy_after") or {})
     next_energy = _extract_next_energy(result.get("energy_grade_after") or {})
+    growth_before = _extract_growth(result.get("member_before") or {})
+    growth_delta = _growth_delta(result.get("member_before") or {}, result.get("member_after") or {})
+    projected_days = _project_days(next_energy, growth_delta)
 
     lines.append("\n### 💰 Co积分")
     try:
@@ -100,10 +124,19 @@ def build_markdown_report(result: dict) -> str:
 
     lines.append("\n### ⚡ 能量体")
     lines.append(f"- 当前：**{growth}**")
+    if growth_delta is not None:
+        sign = "+" if growth_delta >= 0 else ""
+        lines.append(f"- 今日增加：**{sign}{growth_delta}**（{growth_before} → {growth}）")
     if energy_level != "?":
         lines.append(f"- 等级：**{energy_level}**")
     if next_energy != "?":
         lines.append(f"- 距离下一级：**{next_energy}**")
+        if projected_days is not None:
+            lines.append(f"- 按今日增幅预计：**约 {projected_days} 天**")
+        elif growth_delta == 0:
+            lines.append("- 按今日增幅预计：**今日无增加，暂无法估算**")
+        elif growth_delta is not None and growth_delta < 0:
+            lines.append("- 按今日增幅预计：**今日为负增长，暂无法估算**")
 
     return "\n".join(lines)
 
