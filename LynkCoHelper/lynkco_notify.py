@@ -72,23 +72,41 @@ def _extract_flow_records(resp: dict) -> list:
 def _extract_flow_details(resp: dict) -> list:
     from datetime import datetime
     from zoneinfo import ZoneInfo
+
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
     details = []
     for item in _extract_flow_records(resp):
         if not isinstance(item, dict):
             continue
-        date_value = str(item.get("createTime") or item.get("time") or item.get("date") or "")
-        if date_value and not date_value.startswith(today):
-            continue
+
+        # 接口时间可能是 "2026-10-03 00:12:34"、"2026-10-03T00:12:34"
+        # 或带毫秒/时区；这里只比较日期部分，避免格式差异导致当天明细被过滤掉。
+        date_value = str(item.get("createTime") or item.get("time") or item.get("date") or "").strip()
+        if date_value:
+            item_date = date_value[:10].replace("/", "-")
+            if item_date != today:
+                continue
+
         amount = item.get("growth", item.get("energyNum", item.get("number", item.get("change"))))
         if amount is None:
             continue
-        reason = item.get("businessName") or item.get("remark") or item.get("reason") or item.get("name") or item.get("title") or item.get("typeName") or "能量体变动"
+
+        reason = (
+            item.get("businessName")
+            or item.get("remark")
+            or item.get("reason")
+            or item.get("name")
+            or item.get("title")
+            or item.get("typeName")
+            or "能量体变动"
+        )
         try:
             amount = int(amount)
         except (ValueError, TypeError):
             continue
+
         details.append((str(reason), amount))
+
     return details
 
 
@@ -98,30 +116,18 @@ def _extract_task_list(resp: dict) -> list:
     return data if isinstance(data, list) else []
 
 
-def _task_progress(task: dict):
-    try:
-        process = int(task.get("taskProcess"))
-    except (ValueError, TypeError):
-        return None
-    import re
-    match = re.search(r"(\\d+)", str(task.get("taskName") or ""))
-    target = int(match.group(1)) if match else None
-    return process, target
-
-
 def _format_task_line(task: dict) -> str:
     name = str(task.get("taskName") or "签到任务")
     reward = "、".join(str(x) for x in (task.get("rewardContent") or []) if x is not None)
-    progress = _task_progress(task)
-    if progress and progress[1] is not None:
-        process, target = progress
-        remaining = max(target - process, 0)
-        status = " ✅" if process >= target else f"（还差 {remaining}）"
-        line = f"- {name}：**{process}/{target}**{status}"
-    elif progress:
-        line = f"- {name}：**{progress[0]}**"
+
+    # taskProcess 的实际语义目前无法确认，不能把它直接解释成“已完成 X 天”。
+    # 例如“连续签到365天”的 taskProcess 与真实连续签到天数并不一致。
+    process = task.get("taskProcess")
+    if process is not None and str(process).strip() != "":
+        line = f"- {name}：任务进度 **{process}**"
     else:
         line = f"- {name}"
+
     if reward:
         line += f" · 奖励：{reward}"
     return line
@@ -176,8 +182,9 @@ def build_markdown_report(result: dict) -> str:
     point_after = _extract_point(result.get("energy_after") or {})
     income_point = _extract_income_point(result.get("energy_after") or {})
     expire_point = _extract_expire_point(result.get("energy_after") or {})
-    growth = _extract_growth(result.get("energy_after") or {})
-    energy_level = _extract_energy_level(result.get("energy_after") or {})
+    # 能量体/等级来自 memberInFo 的 accountLevelVo，而不是 myEnergy。
+    growth = _extract_growth(result.get("member_after") or {})
+    energy_level = _extract_energy_level(result.get("member_after") or {})
     next_energy = _extract_next_energy(result.get("energy_grade_after") or {})
     growth_before = _extract_growth(result.get("member_before") or {})
     growth_delta = _growth_delta(result.get("member_before") or {}, result.get("member_after") or {})
