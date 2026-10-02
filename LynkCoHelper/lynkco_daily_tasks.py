@@ -17,7 +17,9 @@ ENERGY_REFRESH_DELAY_SECONDS = float(os.environ.get("LYNKCO_ENERGY_DELAY", "5"))
 EP_MY_ENERGY = "/app/energy/myEnergy"
 EP_MEMBER_INFO = "/app/member/service/memberInFo"
 EP_ENERGY_GRADE_INFO = "/app/user/privilegePackage/energyGradeInfo"
-EP_ENERGY_GROWTH_FLOW = "/app/energy/growth/flow?pageSize=50&pageNum=1"
+# Keep the query separate from the path so the API-gateway signature canonicalizes
+# it as query parameters instead of treating "?pageSize=..." as part of the path.
+EP_ENERGY_GROWTH_FLOW = "/app/energy/growth/flow"
 EP_TASK_LIST = "/up/api/v1/userReward/getTaskList"
 ENERGY_HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "energy_history.json")
 
@@ -35,7 +37,11 @@ def get_energy_grade_info(client: LynkCoSignClient) -> dict:
 
 
 def get_energy_growth_flow(client: LynkCoSignClient) -> dict:
-    return client._request("GET", EP_ENERGY_GROWTH_FLOW).json()
+    return client._request(
+        "GET",
+        EP_ENERGY_GROWTH_FLOW,
+        params={"pageSize": 50, "pageNum": 1},
+    ).json()
 
 
 def get_task_list(client: LynkCoSignClient) -> dict:
