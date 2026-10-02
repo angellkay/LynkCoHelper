@@ -31,3 +31,12 @@ jobs:
         LYNKCO_APP_SECRETS: ${{ secrets.LYNKCO_APP_SECRETS }}
       run: |
         python ./LynkCoHelper/lynkco_daily_tasks.py
+    - name: Save energy growth history
+      run: |
+        if [ -f ./LynkCoHelper/energy_history.json ] && ! git diff --quiet -- ./LynkCoHelper/energy_history.json; then
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ./LynkCoHelper/energy_history.json
+          git commit -m "chore: update energy growth history"
+          git push
+        fi
