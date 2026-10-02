@@ -18,6 +18,7 @@ EP_MY_ENERGY = "/app/energy/myEnergy"
 EP_MEMBER_INFO = "/app/member/service/memberInFo"
 EP_ENERGY_GRADE_INFO = "/app/user/privilegePackage/energyGradeInfo"
 EP_ENERGY_GROWTH_FLOW = "/app/energy/growth/flow?pageSize=50&pageNum=1"
+EP_TASK_LIST = "/up/api/v1/userReward/getTaskList"
 ENERGY_HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "energy_history.json")
 
 
@@ -35,6 +36,10 @@ def get_energy_grade_info(client: LynkCoSignClient) -> dict:
 
 def get_energy_growth_flow(client: LynkCoSignClient) -> dict:
     return client._request("GET", EP_ENERGY_GROWTH_FLOW).json()
+
+
+def get_task_list(client: LynkCoSignClient) -> dict:
+    return client._request("GET", EP_TASK_LIST).json()
 
 
 def _load_energy_history() -> list:
@@ -94,6 +99,10 @@ def run_daily_tasks(token: str, do_share: bool = True) -> dict:
         result["energy_growth_flow"] = get_energy_growth_flow(sign_client)
     except Exception as e:
         result["energy_growth_flow"] = {"error": str(e)}
+    try:
+        result["task_list"] = get_task_list(sign_client)
+    except Exception as e:
+        result["task_list"] = {"error": str(e)}
     return result
 
 
