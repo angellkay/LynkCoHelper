@@ -11,6 +11,11 @@ def _extract_point(energy_resp: dict) -> str:
     return str((energy_resp.get("data") or {}).get("point", "?"))
 
 
+def _extract_income_point(energy_resp: dict) -> str:
+    """提取 Co积分累计获得值；不是当前能量体余额。"""
+    return str((energy_resp.get("data") or {}).get("incomePoint", "?"))
+
+
 def build_markdown_report(result: dict) -> str:
     lines = []
     if result.get("already_signed"):
@@ -51,6 +56,8 @@ def build_markdown_report(result: dict) -> str:
 
     point_before = _extract_point(result.get("energy_before") or {})
     point_after = _extract_point(result.get("energy_after") or {})
+    income_point = _extract_income_point(result.get("energy_after") or {})
+
     lines.append("\n### 💰 积分变化")
     try:
         delta = int(point_after) - int(point_before)
@@ -58,6 +65,11 @@ def build_markdown_report(result: dict) -> str:
     except (ValueError, TypeError):
         delta_str = ""
     lines.append(f"- {point_before} → **{point_after}** {delta_str}".rstrip())
+
+    lines.append("\n### ⚡ 能量体")
+    lines.append(f"- 当前余额：**{point_after}**")
+    lines.append(f"- Co积分累计获得：**{income_point}**")
+
     return "\n".join(lines)
 
 
