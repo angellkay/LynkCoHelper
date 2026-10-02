@@ -4,6 +4,8 @@ import json
 import os
 import sys
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from lynkco_common import mask_sensitive
 from lynkco_login import load_token
@@ -15,6 +17,8 @@ ENERGY_REFRESH_DELAY_SECONDS = float(os.environ.get("LYNKCO_ENERGY_DELAY", "5"))
 EP_MY_ENERGY = "/app/energy/myEnergy"
 EP_MEMBER_INFO = "/app/member/service/memberInFo"
 EP_ENERGY_GRADE_INFO = "/app/user/privilegePackage/energyGradeInfo"
+EP_ENERGY_GROWTH_FLOW = "/app/energy/growth/flow?pageSize=50&pageNum=1"
+ENERGY_HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "energy_history.json")
 
 
 def get_my_energy(client: LynkCoSignClient) -> dict:
@@ -27,6 +31,35 @@ def get_member_info(client: LynkCoSignClient) -> dict:
 
 def get_energy_grade_info(client: LynkCoSignClient) -> dict:
     return client._request("GET", EP_ENERGY_GRADE_INFO).json()
+
+
+def get_energy_growth_flow(client: LynkCoSignClient) -> dict:
+    return client._request("GET", EP_ENERGY_GROWTH_FLOW).json()
+
+
+def _load_energy_history() -> list:
+    try:
+        with open(ENERGY_HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def _save_energy_history(history: list) -> None:
+    with open(ENERGY_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history[-7:], f, ensure_ascii=False, indent=2)
+
+
+def update_energy_history(growth_delta) -> list:
+    if growth_delta is None:
+        return _load_energy_history()
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    history = [x for x in _load_energy_history() if x.get("date") != today]
+    history.append({"date": today, "growth": growth_delta})
+    history = history[-7:]
+    _save_energy_history(history)
+    return history
 
 
 def run_daily_tasks(token: str, do_share: bool = True) -> dict:
@@ -57,6 +90,10 @@ def run_daily_tasks(token: str, do_share: bool = True) -> dict:
     result["energy_after"] = get_my_energy(sign_client)
     result["member_after"] = get_member_info(sign_client)
     result["energy_grade_after"] = get_energy_grade_info(sign_client)
+    try:
+        result["energy_growth_flow"] = get_energy_growth_flow(sign_client)
+    except Exception as e:
+        result["energy_growth_flow"] = {"error": str(e)}
     return result
 
 
@@ -64,6 +101,12 @@ def run_and_notify() -> dict:
     token = load_token()
     print("=== 执行每日任务（签到+分享）===")
     result = run_daily_tasks(token, do_share=True)
+    try:
+        from lynkco_notify import _growth_delta
+        result["energy_history"] = update_energy_history(_growth_delta(result.get("member_before") or {}, result.get("member_after") or {}))
+    except Exception as e:
+        print(f"[警告] 保存能量体历史失败: {e}")
+        result["energy_history"] = _load_energy_history()
     print(json.dumps(mask_sensitive(result), ensure_ascii=False, indent=2))
 
     markdown_body = build_markdown_report(result)
