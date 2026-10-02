@@ -9,7 +9,13 @@ from zoneinfo import ZoneInfo
 
 from lynkco_common import mask_sensitive
 from lynkco_login import load_token
-from lynkco_notify import build_markdown_report, send_telegram_notification
+from lynkco_notify import (
+    _extract_flow_details,
+    _flow_growth_total,
+    _growth_delta,
+    build_markdown_report,
+    send_telegram_notification,
+)
 from lynkco_sign import LynkCoSignClient
 from lynkco_share import LynkCoShareClient
 
@@ -73,6 +79,19 @@ def update_energy_history(growth_delta) -> list:
     return history
 
 
+def _get_actual_daily_growth(result: dict):
+    """优先使用今天的能量流水总和，失败时回退到本次运行前后差值。"""
+    flow = result.get("energy_growth_flow") or {}
+    flow_details = _extract_flow_details(flow)
+    flow_total = _flow_growth_total(flow_details)
+    if flow_total is not None:
+        return flow_total
+    return _growth_delta(
+        result.get("member_before") or {},
+        result.get("member_after") or {},
+    )
+
+
 def run_daily_tasks(token: str, do_share: bool = True) -> dict:
     result = {}
     sign_client = LynkCoSignClient(token)
@@ -116,16 +135,21 @@ def run_and_notify() -> dict:
     token = load_token()
     print("=== 执行每日任务（签到+分享）===")
     result = run_daily_tasks(token, do_share=True)
+
     try:
-        from lynkco_notify import _growth_delta
-        result["energy_history"] = update_energy_history(_growth_delta(result.get("member_before") or {}, result.get("member_after") or {}))
+        daily_growth = _get_actual_daily_growth(result)
+        result["daily_growth"] = daily_growth
+        result["energy_history"] = update_energy_history(daily_growth)
     except Exception as e:
         print(f"[警告] 保存能量体历史失败: {e}")
+        result["daily_growth"] = None
         result["energy_history"] = _load_energy_history()
+
     print(json.dumps(mask_sensitive(result), ensure_ascii=False, indent=2))
 
     markdown_body = build_markdown_report(result)
-    print("\n=== 推送内容预览 ===")
+    print("
+=== 推送内容预览 ===")
     print(markdown_body)
 
     notify_results = {}
@@ -138,7 +162,8 @@ def run_and_notify() -> dict:
         print(f"[警告] Telegram 推送失败（不影响签到/分享结果）: {e}")
         notify_results["telegram"] = {"skipped": True, "error": str(e)}
 
-    print("\n=== 推送结果 ===")
+    print("
+=== 推送结果 ===")
     print(json.dumps(mask_sensitive(notify_results), ensure_ascii=False, indent=2))
     result["notify_result"] = notify_results
     return result
