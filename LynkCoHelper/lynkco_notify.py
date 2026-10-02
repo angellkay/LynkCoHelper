@@ -2,6 +2,9 @@
 """领克每日任务通知工具：支持 Telegram（可选）。"""
 import os
 import requests
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+
 from lynkco_common import load_env_data
 
 TELEGRAM_DEFAULT_BASE = "https://api.telegram.org"
@@ -64,30 +67,96 @@ def _project_days(next_energy: str, daily_growth):
 
 
 def _extract_flow_records(resp: dict) -> list:
+    """
+    当前接口实际返回：
+      data: {
+        data: [ {...}, {...} ],
+        total: "..."
+      }
+    同时兼容旧的 records/list/rows 结构。
+    """
     data = resp.get("data") or {}
-    records = data if isinstance(data, list) else (data.get("records") or data.get("list") or data.get("rows") or [])
-    return records if isinstance(records, list) else []
+    if isinstance(data, list):
+        return data
+
+    if not isinstance(data, dict):
+        return []
+
+    nested = data.get("data")
+    if isinstance(nested, list):
+        return nested
+
+    for key in ("records", "list", "rows"):
+        records = data.get(key)
+        if isinstance(records, list):
+            return records
+
+    return []
+
+
+def _item_date_in_shanghai(item: dict):
+    """从 createAt/createTime/time/date 提取北京时间日期。"""
+    value = (
+        item.get("createAt")
+        or item.get("createTime")
+        or item.get("time")
+        or item.get("date")
+    )
+    if value is None:
+        return None
+
+    # 领克当前接口使用 13 位毫秒时间戳。
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value) / 1000, tz=timezone.utc).astimezone(
+                ZoneInfo("Asia/Shanghai")
+            ).date()
+        except (ValueError, OSError, OverflowError):
+            return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if text.isdigit():
+        try:
+            number = int(text)
+            # 13 位按毫秒；10 位按秒，兼容两种情况。
+            seconds = number / 1000 if len(text) >= 12 else number
+            return datetime.fromtimestamp(seconds, tz=timezone.utc).astimezone(
+                ZoneInfo("Asia/Shanghai")
+            ).date()
+        except (ValueError, OSError, OverflowError):
+            return None
+
+    normalized = text.replace("/", "-")
+    try:
+        return datetime.fromisoformat(normalized.replace("Z", "+00:00")).astimezone(
+            ZoneInfo("Asia/Shanghai")
+        ).date()
+    except ValueError:
+        try:
+            return datetime.strptime(normalized[:19], "%Y-%m-%d %H:%M:%S").date()
+        except ValueError:
+            return None
 
 
 def _extract_flow_details(resp: dict) -> list:
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    today = datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     details = []
+
     for item in _extract_flow_records(resp):
         if not isinstance(item, dict):
             continue
 
-        # 接口时间可能是 "2026-10-03 00:12:34"、"2026-10-03T00:12:34"
-        # 或带毫秒/时区；这里只比较日期部分，避免格式差异导致当天明细被过滤掉。
-        date_value = str(item.get("createTime") or item.get("time") or item.get("date") or "").strip()
-        if date_value:
-            item_date = date_value[:10].replace("/", "-")
-            if item_date != today:
-                continue
+        item_date = _item_date_in_shanghai(item)
+        if item_date is not None and item_date != today:
+            continue
 
-        amount = item.get("growth", item.get("energyNum", item.get("number", item.get("change"))))
+        amount = item.get(
+            "growth",
+            item.get("energyNum", item.get("number", item.get("change")))
+        )
         if amount is None:
             continue
 
@@ -100,6 +169,7 @@ def _extract_flow_details(resp: dict) -> list:
             or item.get("typeName")
             or "能量体变动"
         )
+
         try:
             amount = int(amount)
         except (ValueError, TypeError):
@@ -109,6 +179,11 @@ def _extract_flow_details(resp: dict) -> list:
 
     return details
 
+
+def _flow_growth_total(flow_details: list):
+    if not flow_details:
+        return None
+    return sum(amount for _, amount in flow_details)
 
 
 def _extract_task_list(resp: dict) -> list:
@@ -121,7 +196,6 @@ def _format_task_line(task: dict) -> str:
     reward = "、".join(str(x) for x in (task.get("rewardContent") or []) if x is not None)
 
     # taskProcess 的实际语义目前无法确认，不能把它直接解释成“已完成 X 天”。
-    # 例如“连续签到365天”的 taskProcess 与真实连续签到天数并不一致。
     process = task.get("taskProcess")
     if process is not None and str(process).strip() != "":
         line = f"- {name}：任务进度 **{process}**"
@@ -161,14 +235,16 @@ def build_markdown_report(result: dict) -> str:
 
     task_list = _extract_task_list(result.get("task_list") or {})
     if task_list:
-        lines.append("\n### 📋 签到任务")
+        lines.append("
+### 📋 签到任务")
         for task in task_list:
             if isinstance(task, dict):
                 lines.append(_format_task_line(task))
 
     share_result = result.get("share_result")
     if share_result is not None:
-        lines.append("\n### 🔗 分享任务")
+        lines.append("
+### 🔗 分享任务")
         if share_result.get("ok"):
             lines.append("- 状态：**上报成功**")
             article_title = share_result.get("articleTitle")
@@ -182,55 +258,79 @@ def build_markdown_report(result: dict) -> str:
     point_after = _extract_point(result.get("energy_after") or {})
     income_point = _extract_income_point(result.get("energy_after") or {})
     expire_point = _extract_expire_point(result.get("energy_after") or {})
-    # 能量体/等级来自 memberInFo 的 accountLevelVo，而不是 myEnergy。
+
     growth = _extract_growth(result.get("member_after") or {})
     energy_level = _extract_energy_level(result.get("member_after") or {})
     next_energy = _extract_next_energy(result.get("energy_grade_after") or {})
+
     growth_before = _extract_growth(result.get("member_before") or {})
-    growth_delta = _growth_delta(result.get("member_before") or {}, result.get("member_after") or {})
-    projected_days = _project_days(next_energy, growth_delta)
+    run_growth_delta = _growth_delta(
+        result.get("member_before") or {},
+        result.get("member_after") or {},
+    )
+
+    flow_details = _extract_flow_details(result.get("energy_growth_flow") or {})
+    flow_growth_total = _flow_growth_total(flow_details)
+
+    # “今日增加”优先使用今天实际的能量流水总和。
+    # 这样即使脚本在奖励到账后再次运行，也不会误报为 0。
+    daily_growth = flow_growth_total if flow_growth_total is not None else run_growth_delta
+
+    projected_days = _project_days(next_energy, daily_growth)
+
     history = result.get("energy_history") or []
-    history_values = [int(x.get("growth")) for x in history if isinstance(x, dict) and str(x.get("growth", "")).lstrip("-").isdigit()]
+    history_values = [
+        int(x.get("growth"))
+        for x in history
+        if isinstance(x, dict)
+        and str(x.get("growth", "")).lstrip("-").isdigit()
+    ]
     avg_growth = (sum(history_values) / len(history_values)) if history_values else None
     avg_projected_days = _project_days(next_energy, avg_growth)
-    flow_details = _extract_flow_details(result.get("energy_growth_flow") or {})
 
-    lines.append("\n### 💰 Co积分")
+    lines.append("
+### 💰 Co积分")
     try:
         delta = int(point_after) - int(point_before)
-        delta_str = f"（+{delta}）" if delta > 0 else (f"（{delta}）" if delta < 0 else "（无变化）")
+        delta_str = (
+            f"（+{delta}）" if delta > 0
+            else (f"（{delta}）" if delta < 0 else "（无变化）")
+        )
     except (ValueError, TypeError):
         delta_str = ""
     lines.append(f"- {point_before} → **{point_after}** {delta_str}".rstrip())
     lines.append(f"- 累计获得：**{income_point}**")
     lines.append(f"- 待过期：**{expire_point}**")
 
-    lines.append("\n### ⚡ 能量体")
+    lines.append("
+### ⚡ 能量体")
     lines.append(f"- 当前：**{growth}**")
-    if growth_delta is not None:
-        sign = "+" if growth_delta >= 0 else ""
-        lines.append(f"- 今日增加：**{sign}{growth_delta}**（{growth_before} → {growth}）")
+    if daily_growth is not None:
+        sign = "+" if daily_growth >= 0 else ""
+        lines.append(f"- 今日增加：**{sign}{daily_growth}**（{growth_before} → {growth}）")
     if energy_level != "?":
         lines.append(f"- 等级：**{energy_level}**")
     if next_energy != "?":
         lines.append(f"- 距离下一级：**{next_energy}**")
         if projected_days is not None:
             lines.append(f"- 按今日增幅预计：**约 {projected_days} 天**")
-        elif growth_delta == 0:
+        elif daily_growth == 0:
             lines.append("- 按今日增幅预计：**今日无增加，暂无法估算**")
-        elif growth_delta is not None and growth_delta < 0:
+        elif daily_growth is not None and daily_growth < 0:
             lines.append("- 按今日增幅预计：**今日为负增长，暂无法估算**")
     if avg_growth is not None:
         lines.append(f"- 近7天平均：**+{avg_growth:.2f}/天**")
         if avg_projected_days is not None:
             lines.append(f"- 按近7天平均预计：**约 {avg_projected_days} 天**")
+
     if flow_details:
         lines.append("- 今日增加明细：")
         for reason, amount in flow_details:
             sign = "+" if amount >= 0 else ""
             lines.append(f"  - {reason}：**{sign}{amount}**")
 
-    return "\n".join(lines)
+    return "
+".join(lines)
 
 
 def send_telegram_notification(title: str, markdown_body: str,
