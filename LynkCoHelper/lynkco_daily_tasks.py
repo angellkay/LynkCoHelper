@@ -13,17 +13,28 @@ from lynkco_share import LynkCoShareClient
 
 ENERGY_REFRESH_DELAY_SECONDS = float(os.environ.get("LYNKCO_ENERGY_DELAY", "5"))
 EP_MY_ENERGY = "/app/energy/myEnergy"
+EP_MEMBER_INFO = "/app/member/service/memberInFo"
+EP_ENERGY_GRADE_INFO = "/app/user/privilegePackage/energyGradeInfo"
 
 
 def get_my_energy(client: LynkCoSignClient) -> dict:
-    resp = client._request("GET", EP_MY_ENERGY)
-    return resp.json()
+    return client._request("GET", EP_MY_ENERGY).json()
+
+
+def get_member_info(client: LynkCoSignClient) -> dict:
+    return client._request("GET", EP_MEMBER_INFO).json()
+
+
+def get_energy_grade_info(client: LynkCoSignClient) -> dict:
+    return client._request("GET", EP_ENERGY_GRADE_INFO).json()
 
 
 def run_daily_tasks(token: str, do_share: bool = True) -> dict:
     result = {}
     sign_client = LynkCoSignClient(token)
     result["energy_before"] = get_my_energy(sign_client)
+    result["member_before"] = get_member_info(sign_client)
+
     day_info = sign_client.get_sign_day_info()
     result["day_info"] = day_info
     already_signed = (day_info.get("data") or {}).get("signStatus") == 1
@@ -42,7 +53,10 @@ def run_daily_tasks(token: str, do_share: bool = True) -> dict:
 
     if not already_signed or (do_share and (result.get("share_result") or {}).get("ok")):
         time.sleep(ENERGY_REFRESH_DELAY_SECONDS)
+
     result["energy_after"] = get_my_energy(sign_client)
+    result["member_after"] = get_member_info(sign_client)
+    result["energy_grade_after"] = get_energy_grade_info(sign_client)
     return result
 
 
