@@ -361,9 +361,63 @@ def send_telegram_notification(title: str, markdown_body: str,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     }
-    resp = requests.post(url, json=payload, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    if not data.get("ok"):
-        raise RuntimeError(f"Telegram 返回异常: {data}")
-    return data
+    # GitHub Actions 到 Telegram 偶尔会出现瞬时网络超时。
+    # 不让一次超时直接导致整次任务的通知失败：短超时 + 递增等待重试。
+    import time
+    last_error = None
+    for attempt, delay in enumerate((0, 2, 5), start=1):
+        if delay:
+            time.sleep(delay)
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                timeout=(10, 20),
+            )
+            if resp.status_code == 429 and attempt < 3:
+                retry_after = resp.headers.get("Retry-After")
+                try:
+                    retry_delay = min(max(int(retry_after), 1), 30)
+                except (TypeError, ValueError):
+                    retry_delay = 5
+                print(
+                    f"[Telegram] HTTP 429，第 {attempt} 次请求，"
+                    f"{retry_delay} 秒后重试",
+                    flush=True,
+                )
+                time.sleep(retry_delay)
+                continue
+            if 500 <= resp.status_code < 600 and attempt < 3:
+                print(
+                    f"[Telegram] HTTP {resp.status_code}，"
+                    f"第 {attempt} 次请求，准备重试",
+                    flush=True,
+                )
+                continue
+
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("ok"):
+                raise RuntimeError(f"Telegram 返回异常: {data}")
+            return data
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < 3:
+                print(
+                    f"[Telegram] 请求失败，第 {attempt} 次："
+                    f"{type(exc).__name__}，准备重试",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[Telegram] 请求失败，已重试 3 次："
+                    f"{type(exc).__name__}",
+                    flush=True,
+                )
+        except (ValueError, RuntimeError) as exc:
+            last_error = exc
+            break
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Telegram 推送失败")
