@@ -50,7 +50,7 @@ jobs:
         if: ${{ steps.restore.outputs.restored == 'false' }}
         env:
           BOOTSTRAP_STATE: ${{ secrets.LYNKCO_COMMENT_BOOTSTRAP_STATE }}
-          PUBLISH: ${{ (github.event_name == 'schedule' && vars.LYNKCO_COMMENT_PUBLISH_ENABLED == 'true') || inputs.publish == true }}
+          PUBLISH: ${{ (github.event_name == 'schedule' && vars.LYNKCO_COMMENT_PUBLISH_ENABLED != 'false') || inputs.publish == true }}
         run: |
           python - <<'PY'
           import json
@@ -91,7 +91,7 @@ jobs:
           LYNKCO_TIMEOUT: ${{ vars.LYNKCO_TIMEOUT || '30' }}
           LYNKCO_AI_TIMEOUT: ${{ vars.LYNKCO_AI_TIMEOUT || '60' }}
           LYNKCO_RETRIES: ${{ vars.LYNKCO_RETRIES || '2' }}
-          PUBLISH: ${{ (github.event_name == 'schedule' && vars.LYNKCO_COMMENT_PUBLISH_ENABLED == 'true') || inputs.publish == true }}
+          PUBLISH: ${{ (github.event_name == 'schedule' && vars.LYNKCO_COMMENT_PUBLISH_ENABLED != 'false') || inputs.publish == true }}
         run: |
           if [ "$PUBLISH" = "true" ]; then
             python lynkco_comment.py --publish
