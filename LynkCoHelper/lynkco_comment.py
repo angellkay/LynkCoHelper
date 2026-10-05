@@ -18,7 +18,7 @@ from lynkco_ai import CommentGenerationError, generate_comment, load_ai_config
 from lynkco_common import env_value
 from lynkco_comment_client import CommentClient, CommentPostError, CommentPostUncertain
 from lynkco_comment_feed import eligible_posts, fetch_article_detail, fetch_recent_posts
-from lynkco_notify import send_bark_notification
+from lynkco_notify import send_telegram_notification
 from lynkco_share import article_share_url
 
 
@@ -165,25 +165,19 @@ def _summary(result):
     return "\n".join(lines)
 
 
-def _bark_icon():
-    return env_value("LYNKCO_BARK_ICON") or None
-
-
 def _notify_generated(post, comment, status, result):
-    # UGC links are not trusted or published; article links are generated locally.
     url = article_share_url(post["id"]) if post.get("kind") == "article" else None
     article_title = post.get("title") or "领克动态"
+    body = (f"**动态**：{article_title}\n\n"
+            f"**评论**：{comment}\n\n"
+            f"**结果**：{status}")
+    if url:
+        body += f"\n\n[查看动态]({url})"
     try:
-        send_bark_notification(
-            title=f"领克动态评论｜{status}",
-            markdown_body=(f"**动态**：{article_title}\n\n"
-                           f"**评论**：{comment}\n\n"
-                           f"**结果**：{status}"),
-            group="LynkCo评论", icon=_bark_icon(), open_url=url,
-        )
+        send_telegram_notification(title=f"领克动态评论｜{status}", markdown_body=body)
     except Exception as exc:
-        result["bark_failed"] = True
-        _log(f"Bark 推送失败 id={post.get('id')} error={type(exc).__name__}: {exc}")
+        result["telegram_failed"] = True
+        _log(f"Telegram 推送失败 id={post.get('id')} error={type(exc).__name__}: {exc}")
 
 
 def _run_comment_task_unlocked(max_comments: int, dry_run: bool, state_path: Path,
@@ -329,8 +323,7 @@ def _run_comment_task_unlocked(max_comments: int, dry_run: bool, state_path: Pat
             result["pending"] = len(candidates) - attempted
     if not generated_candidates:
         try:
-            send_bark_notification(title="本轮未生成评论", markdown_body=_summary(result),
-                                    group="LynkCo评论", icon=_bark_icon())
+            send_telegram_notification(title="领克动态评论｜本轮未生成", markdown_body=_summary(result))
         except Exception as exc:
             result["bark_failed"] = True
             _log(f"本轮汇总 Bark 推送失败 error={type(exc).__name__}: {exc}")
@@ -445,10 +438,9 @@ def main(argv=None):
             # exposing any credential value in the preflight diagnostic.
             error_category = str(exc) or error_category
         try:
-            send_bark_notification(
-                title="领克动态评论", group="LynkCo评论",
+            send_telegram_notification(
+                title="领克动态评论｜预检失败",
                 markdown_body=f"### 评论任务 · {'发布' if args.publish else '演练'}\n- 预检失败：{error_category}\n- 未执行评论发布",
-                icon=_bark_icon(),
             )
         except Exception as bark_error:
             _log(f"预检失败后的 Bark 推送失败 error={type(bark_error).__name__}: {bark_error}")
