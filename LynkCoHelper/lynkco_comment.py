@@ -31,7 +31,7 @@ _BEARER_PATTERN = re.compile(r"\bbearer[A-Za-z0-9._-]+", re.IGNORECASE)
 def _redact_log_text(value):
     text = str(value)
     for name in (
-        "LYNKCO_BARK_KEY", "CHATANYWHERE_API_KEY", "GLM_API_KEY",
+        "CHATANYWHERE_API_KEY", "GLM_API_KEY",
         "ZHIPU_API_KEY", "LYNKCO_TOKEN", "LYNKCO_REFRESH_TOKEN",
         "LYNKCO_DEVICE_ID",
     ):
@@ -325,7 +325,7 @@ def _run_comment_task_unlocked(max_comments: int, dry_run: bool, state_path: Pat
         try:
             send_telegram_notification(title="领克动态评论｜本轮未生成", markdown_body=_summary(result))
         except Exception as exc:
-            result["bark_failed"] = True
+            result["telegram_failed"] = True
             _log(f"本轮汇总 Bark 推送失败 error={type(exc).__name__}: {exc}")
     _log(
         f"任务结束：attempted={attempted} generated={result['generated']} "
