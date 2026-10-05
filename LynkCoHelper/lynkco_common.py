@@ -29,11 +29,16 @@ import requests.exceptions
 
 ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "env.json")
 
+def env_value(name: str, default: str = "") -> str:
+    value = os.environ.get(name)
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
 # 网络请求默认超时（秒），GitHub Actions runner 到领克服务器延迟较高，
 # 15 秒不够。可通过环境变量覆盖。
 DEFAULT_TIMEOUT = int(os.environ.get("LYNKCO_TIMEOUT", "30"))
+AI_TIMEOUT = int(os.environ.get("LYNKCO_AI_TIMEOUT", "60"))
 # 超时/断连后自动重试次数（每次间隔 3 秒），重试时会重新生成签名。
-DEFAULT_RETRIES = 2
+DEFAULT_RETRIES = int(os.environ.get("LYNKCO_RETRIES", "2"))
 
 # 密钥字段名 -> (环境变量名, env.json["secrets"] 字段名)
 _SECRET_SPECS = {
@@ -87,7 +92,28 @@ NATIVE_ANDROID_UA = "ALIYUN-ANDROID-UA"
 
 APP_VERSION = "4.2.7"
 ANDROID_APP_BUILD = "402071520"
+IOS_APP_VERSION = "4.2.8"
+IOS_APP_BUILD = "40208072"
+IOS_DEVICE_NAME = "iPhone"
+IOS_DEVICE_MODEL = "iPhone 15 Pro"
+IOS_OS_VERSION = "27.0.1"
+NATIVE_APP_UA = "CA_iOS_SDK_2.0"
+MAX_COMMENT_CHARS = 500
+AI_PROMPT_MAX_CHARS = 50
+IOS_SIGNATURE_HEADERS = "X-Ca-Key,X-Ca-Nonce,X-Ca-Signature-Method,X-Ca-Timestamp,X-Ca-Version,token"
 
+
+def _build_ios_device_headers() -> dict:
+    return {
+        "gl_dev_name": IOS_DEVICE_NAME,
+        "gl_dev_model": IOS_DEVICE_MODEL,
+        "gl_dev_brand": "Apple",
+        "gl_dev_platform": "iOS",
+        "gl_os_version": IOS_OS_VERSION,
+        "gl_app_version": IOS_APP_VERSION,
+        "gl_app_build": IOS_APP_BUILD,
+        "gl_dev_id": env_value("LYNKCO_DEVICE_ID") or str((load_env_data().get("user") or {}).get("deviceId") or "").strip(),
+    }
 
 def _build_native_device_headers() -> dict:
     """设备指纹请求头，仅 gl_dev_id 来自配置，其余为固定机型字段。"""
@@ -221,10 +247,79 @@ def build_native_signature(method: str, path: str, query: dict = None,
     return result
 
 
+def build_native_app_headers(device_id: str = None, token: str = None,
+                             account_id: str = None, extra: dict = None) -> dict:
+    headers = {
+        "User-Agent": NATIVE_APP_UA,
+        "appVersionCode": IOS_APP_VERSION,
+        "appVersionName": IOS_APP_BUILD,
+        "publicPlatform": "iOS",
+        **_build_ios_device_headers(),
+    }
+    if device_id:
+        headers["gl_dev_id"] = device_id
+    if token:
+        headers["svcsid"] = token
+    if account_id:
+        headers["gl_user_id"] = account_id
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def build_ios_signature(method: str, path: str, token: str = "", query: dict = None,
+                        body: bytes = None,
+                        accept: str = "application/json",
+                        content_type: str = "application/json; charset=UTF-8") -> dict:
+    normalized_token = token or ""
+
+    def signature_items(nonce, timestamp):
+        return [
+            ("X-Ca-Key", _get_secret("NATIVE_APP_KEY")),
+            ("X-Ca-Nonce", nonce),
+            ("X-Ca-Signature-Method", "HmacSHA256"),
+            ("X-Ca-Timestamp", timestamp),
+            ("X-Ca-Version", "1"),
+            ("token", normalized_token),
+        ]
+
+    headers = build_native_signature(
+        method, path, query=query, accept=accept, content_type=content_type,
+        body=body, signature_headers_order=IOS_SIGNATURE_HEADERS,
+        signature_header_items=signature_items,
+    )
+    headers.pop("_nonce", None)
+    headers.pop("_timestamp", None)
+    return headers
+
+
+def build_ios_security_info() -> str:
+    device_id = _build_ios_device_headers()["gl_dev_id"]
+    return json.dumps({
+        "osVersion": IOS_OS_VERSION,
+        "platform": "ios",
+        "os": "iOS",
+        "brand": "Apple",
+        "model": IOS_DEVICE_MODEL,
+        "appVersion": IOS_APP_VERSION,
+        "isUsingVpn": "true",
+        "isSetProxy": "true",
+        "isJailbreak": "false",
+        "isCharging": "4",
+        "battery": "95",
+        "networkType": "NETWORK_5G",
+        "screenResolution": "1179 * 2556",
+        "channel": "ios%E5%AE%98%E6%96%B9",
+        "geelyDeviceId": device_id,
+        "deviceUUID": device_id,
+        "deviceToken": "",
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
 def load_env_data() -> dict:
     """读取 env.json，返回 {"user": {...}, "secrets": {...}, "notify": {...}} 结构；文件不存在或字段缺失时对应子对象为空 dict。"""
     if not os.path.exists(ENV_FILE):
-        return {"user": {}, "secrets": {}, "notify": {}}
+        return {"user": {}, "secrets": {}, "notify": {}, "ai": {}}
     with open(ENV_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, dict):
@@ -233,6 +328,7 @@ def load_env_data() -> dict:
         "user": data.get("user") or {},
         "secrets": data.get("secrets") or {},
         "notify": data.get("notify") or {},
+        "ai": data.get("ai") or {},
     }
 
 
