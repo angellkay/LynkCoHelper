@@ -41,6 +41,7 @@ EP_SHARE_REPORTING_SIMPLE = "/app/v1/task/shareReporting"
 # dynamicSort/uniqueId/refreshType/pageNo 分页参数；否则只返回首屏、命中"文章"
 # 类型的概率很低。
 EP_EXPLORE_SQUARE_INDEX = "/app/explore/home-page/square/index2"
+EP_EXPLORE_HOME_V3_LIST = "/app/explore/home-page/v3/list"
 # get_latest_article() 命中第一篇文章前最多尝试翻的页数。
 EXPLORE_SQUARE_PAGE_COUNT = 5
 
@@ -50,6 +51,13 @@ H5_SHARE_ORIGIN = "https://h5.lynkco.com"
 
 # 典型文章 id（真实抓包样本），作为 get_latest_article() 获取失败时的兜底。
 DEFAULT_SHARE_ARTICLE_ID = "2075054309774663680"
+
+
+def article_share_url(article_id: str) -> str:
+    return (
+        "https://h5.lynkco.com/app-h5/dist/web/pages/exploration/article/index.html"
+        f"?id={article_id}&isShare=lynkco%3A%2F%2Fwx%2F%3FrouteUrl%3D%2Fpages%2Fexploration%2Farticle%2Findex.js%3Fid%3D{article_id}"
+    )
 
 
 def _find_article(value) -> dict:
