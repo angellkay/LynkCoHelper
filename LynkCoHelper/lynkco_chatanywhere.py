@@ -158,7 +158,7 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
             any(phrase in comment for phrase in _PROMO_PHRASES) or
             _CONTACT_PATTERN.search(comment) or
             any(ord(char) < 32 for char in comment)):
-        print(f"[AI] rejected response={result}", flush=True)
+        print(f"[AI] rejected response={comment}", flush=True)
         raise CommentGenerationError("模型评论内容无效")
     # 始终要求评论与标题/正文存在可核对的文字锚点；图片可以补充细节，但不能绕过文字依据校验。
     source_text = f"{title}\n{content}"
