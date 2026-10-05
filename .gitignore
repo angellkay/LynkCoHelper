@@ -135,3 +135,7 @@ work/
 node_modules/
 .wrangler/
 .dev.vars*
+
+# AI comment runtime state
+/LynkCoHelper/.comment_state.json
+/LynkCoHelper/.comment_state.json.lock
