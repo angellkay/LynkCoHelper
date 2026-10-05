@@ -98,46 +98,61 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
 
     parts = [{"type": "text", "text": f"标题：{title[:200]}\n正文：{content[:3000]}"}]
     parts.extend({"type": "image_url", "image_url": {"url": url}} for url in images[:3])
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": parts},
-        ],
-        "max_tokens": 160,
-        "stream": False,
-    }
+    def _request_completion(current_parts, max_tokens=96):
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": current_parts},
+            ],
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            response = request_session.post(
+                API_URL, json=payload,
+                headers={"Authorization": f"Bearer {api_key}"}, timeout=AI_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            print(f"[AI] request error={type(exc).__name__}: {exc}", flush=True)
+            raise CommentGenerationError("模型请求失败") from None
+        print(f"[AI] response status={response.status_code}", flush=True)
+        if response.status_code == 429:
+            print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
+            raise CommentGenerationError("模型服务繁忙（HTTP 429），请稍后重试")
+        if response.status_code in (401, 403):
+            print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
+            raise CommentGenerationError("模型 API Key 无效或无权限")
+        if response.status_code != 200:
+            print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
+            raise CommentGenerationError("模型服务返回失败")
+        try:
+            choice = response.json()["choices"][0]
+            finish_reason = choice["finish_reason"]
+            result = choice["message"]["content"]
+        except (ValueError, TypeError, KeyError, IndexError):
+            raise CommentGenerationError("模型响应格式无效") from None
+        if finish_reason != "stop" or not isinstance(result, str):
+            raise CommentGenerationError("模型输出未完成")
+        return result.strip()
+
     request_session = session or requests.Session()
     endpoint = getattr(request_session, "endpoint", API_URL)
     print(f"[AI] request endpoint={endpoint} model={model} images={len(images)}", flush=True)
-    try:
-        response = request_session.post(
-            API_URL, json=payload,
-            headers={"Authorization": f"Bearer {api_key}"}, timeout=AI_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        print(f"[AI] request error={type(exc).__name__}: {exc}", flush=True)
-        raise CommentGenerationError("模型请求失败") from None
-    print(f"[AI] response status={response.status_code}", flush=True)
-    if response.status_code == 429:
-        print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
-        raise CommentGenerationError("模型服务繁忙（HTTP 429），请稍后重试")
-    if response.status_code in (401, 403):
-        print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
-        raise CommentGenerationError("模型 API Key 无效或无权限")
-    if response.status_code != 200:
-        print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
-        raise CommentGenerationError("模型服务返回失败")
-    try:
-        choice = response.json()["choices"][0]
-        finish_reason = choice["finish_reason"]
-        result = choice["message"]["content"]
-    except (ValueError, TypeError, KeyError, IndexError):
-        raise CommentGenerationError("模型响应格式无效") from None
+    comment = _request_completion(parts)
 
-    if finish_reason != "stop" or not isinstance(result, str):
-        raise CommentGenerationError("模型输出未完成")
-    comment = result.strip()
+    # 模型偶尔会忽略字数要求。不要直接把一次过长结果判废：
+    # 再用一次更强的短评指令重生成，仍超限才真正跳过。
+    if len(comment) > AI_PROMPT_MAX_CHARS:
+        print(f"[AI] generated chars={len(comment)} exceeds {AI_PROMPT_MAX_CHARS}; retry with stricter length", flush=True)
+        retry_parts = list(parts) + [{
+            "type": "text",
+            "text": (
+                f"重新生成，只输出一条自然车友评论，20到40个汉字左右，绝不能超过{AI_PROMPT_MAX_CHARS}字。"
+                "只回应动态中明确出现的一项具体事实，不要总结多个卖点，不要使用“很详细”“很到位”等套话。"
+            ),
+        }]
+        comment = _request_completion(retry_parts, max_tokens=80)
     if (not comment or len(comment) > MAX_COMMENT_CHARS or
             any(phrase.casefold() in comment.casefold() for phrase in _META_PHRASES) or
             any(phrase in comment for phrase in _PROMO_PHRASES) or
