@@ -50,7 +50,7 @@ jobs:
         if: ${{ steps.restore.outputs.restored == 'false' }}
         env:
           BOOTSTRAP_STATE: ${{ secrets.LYNKCO_COMMENT_BOOTSTRAP_STATE }}
-          PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish == true }}
+          PUBLISH: ${{ (github.event_name == 'schedule' && vars.LYNKCO_COMMENT_PUBLISH_ENABLED == 'true') || inputs.publish == true }}
         run: |
           python - <<'PY'
           import json
