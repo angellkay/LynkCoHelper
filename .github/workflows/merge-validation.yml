@@ -1,0 +1,38 @@
+name: Merge Validation
+
+on:
+  push:
+    branches:
+      - merge-upstream-features-2026-10
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: LynkCoHelper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python files
+        run: python -m py_compile *.py tools/*.py
+      - name: Import migrated modules
+        run: |
+          python - <<'PY'
+          import lynkco_ai
+          import lynkco_chatanywhere
+          import lynkco_glm
+          import lynkco_comment
+          import lynkco_comment_client
+          import lynkco_comment_feed
+          import geely_gric
+          print("IMPORT_CHECK_OK")
+          PY
