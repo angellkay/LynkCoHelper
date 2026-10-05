@@ -68,7 +68,11 @@ jobs:
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write("ready=true\n")
           elif os.environ["PUBLISH"] == "true":
-              raise SystemExit("First publish requires a comment state artifact or bootstrap secret.")
+              # 首次正式发布时没有历史状态也可以安全启动：
+              # 使用空状态，首条成功/不确定结果会在本次运行后保存到 artifact。
+              save_state_atomic(Path(".comment_state.json"), validate_state({}))
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("ready=true\n")
           PY
       - name: Initialize and validate state
         run: |
