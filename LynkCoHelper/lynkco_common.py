@@ -204,7 +204,8 @@ def build_native_signature(method: str, path: str, query: dict = None,
     parts = [method.upper(), "\n", accept, "\n", content_md5, "\n", content_type, "\n", date_str, "\n"]
 
     if signature_header_items is not None:
-        header_items = signature_header_items
+        header_items = (signature_header_items(nonce, timestamp)
+                        if callable(signature_header_items) else signature_header_items)
         result_headers = {}
         for name, value in header_items:
             parts.append(f"{name}:{value}")
