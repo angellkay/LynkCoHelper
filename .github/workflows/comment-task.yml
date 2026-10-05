@@ -91,7 +91,7 @@ jobs:
           LYNKCO_TIMEOUT: ${{ vars.LYNKCO_TIMEOUT || '30' }}
           LYNKCO_AI_TIMEOUT: ${{ vars.LYNKCO_AI_TIMEOUT || '60' }}
           LYNKCO_RETRIES: ${{ vars.LYNKCO_RETRIES || '2' }}
-          PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish == true }}
+          PUBLISH: ${{ (github.event_name == 'schedule' && vars.LYNKCO_COMMENT_PUBLISH_ENABLED == 'true') || inputs.publish == true }}
         run: |
           if [ "$PUBLISH" = "true" ]; then
             python lynkco_comment.py --publish
