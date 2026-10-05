@@ -33,6 +33,63 @@ from lynkco_common import (
     save_env_fields,
 )
 
+# iOS 评论发布使用的账号身份查询。评论接口需要当前登录账号的 accountId，
+# 不能拿文章作者 ID 代替，因此在进入 publish 流程前单独查询当前账号身份。
+USER_INFO_PATH = "/auth/user/info"
+
+
+def get_user_info(token: str, device_id: str, session=None) -> dict:
+    """Fetch the current account identity using the native iOS user-info request."""
+    if not isinstance(token, str) or not token.strip():
+        raise ValueError("token 不能为空")
+    if not isinstance(device_id, str) or not device_id.strip():
+        raise ValueError("device_id 不能为空")
+
+    token = token.strip()
+    token = token if token.lower().startswith("bearer") else f"bearer{token}"
+
+    headers = lynkco_common.build_ios_signature(
+        "GET",
+        USER_INFO_PATH,
+        token=token,
+        accept="application/json",
+        content_type="application/json; charset=UTF-8",
+    )
+    headers.update(
+        lynkco_common.build_native_app_headers(
+            device_id=device_id.strip(),
+            token=token,
+        )
+    )
+
+    sess = session if session is not None else requests.Session()
+    try:
+        response = sess.get(
+            lynkco_common.NATIVE_BASE_URL + USER_INFO_PATH,
+            headers=headers,
+            timeout=lynkco_common.DEFAULT_TIMEOUT,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"user info request failed: {exc}") from None
+
+    if response.status_code != 200:
+        raise RuntimeError(f"user info HTTP status {response.status_code}")
+
+    try:
+        payload = response.json()
+    except ValueError:
+        raise RuntimeError("user info response was not JSON") from None
+
+    if not isinstance(payload, dict) or payload.get("code") != "success":
+        raise RuntimeError("user info response was unsuccessful")
+
+    data = payload.get("data")
+    account_id = data.get("id") if isinstance(data, dict) else None
+    if isinstance(account_id, bool) or not str(account_id or "").strip().isdigit():
+        raise RuntimeError("user info did not contain a numeric id")
+
+    return {"id": str(account_id).strip()}
+
 # ------------------------- refreshToken 续期 -------------------------
 
 # iOS 请求仍沿用其对应的抓包 build 号；Android 版本与 build 统一由
