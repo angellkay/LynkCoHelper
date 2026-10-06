@@ -70,7 +70,7 @@ jobs:
           elif os.environ["PUBLISH"] == "true":
               # 首次正式发布时没有历史状态也可以安全启动：
               # 使用空状态，首条成功/不确定结果会在本次运行后保存到 artifact。
-              save_state_atomic(Path(".comment_state.json"), validate_state({}))
+              save_state_atomic(Path(".comment_state.json"), validate_state({"version": 1, "successes": {}, "uncertain": {}}))
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write("ready=true\n")
           PY
