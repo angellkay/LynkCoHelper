@@ -219,9 +219,6 @@ def build_markdown_report(result: dict) -> str:
         sign_data = sign_result.get("data") or {}
         if sign_ok:
             lines.append("### ✅ 签到成功")
-            reward = sign_data.get("rewardEnergyNumber")
-            if reward is not None:
-                lines.append(f"- 本次奖励能量体：**+{reward}**")
         else:
             lines.append("### ❌ 签到失败")
             lines.append(f"- {sign_result.get('message', '未知错误')}")
