@@ -12,6 +12,17 @@ on:
         type: boolean
         required: true
         default: false
+      model:
+        description: "Manual test model (schedule uses CHATANYWHERE_MODEL repo variable)"
+        type: choice
+        required: true
+        default: "gpt-4o-mini"
+        options:
+          - gpt-4o-mini
+          - gpt-4.1-mini
+          - gpt-5.4-mini
+          - qwen3.5-plus
+          - gpt-5.6-luna
 
 permissions:
   contents: read
@@ -85,7 +96,7 @@ jobs:
           LYNKCO_APP_SECRETS: ${{ secrets.LYNKCO_APP_SECRETS }}
           LYNKCO_AI_PROVIDER: ${{ vars.LYNKCO_AI_PROVIDER || 'chatanywhere' }}
           CHATANYWHERE_API_KEY: ${{ secrets.CHATANYWHERE_API_KEY }}
-          CHATANYWHERE_MODEL: ${{ vars.CHATANYWHERE_MODEL || 'gpt-4o-mini' }}
+          CHATANYWHERE_MODEL: ${{ inputs.model || vars.CHATANYWHERE_MODEL || 'gpt-4o-mini' }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_MODEL: ${{ vars.GLM_MODEL || 'glm-4v-flash' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
