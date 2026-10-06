@@ -11,6 +11,8 @@ from lynkco_common import AI_PROMPT_MAX_CHARS, AI_TIMEOUT, MAX_COMMENT_CHARS
 
 
 API_URL = "https://api.chatanywhere.tech/v1/chat/completions"
+FALLBACK_API_URL = "https://api.chatanywhere.org/v1/chat/completions"
+AI_RETRY_DELAYS = (0, 2, 5)
 SYSTEM_PROMPT = (
     f"你在阅读一条领克社区动态，写一句简洁、自然、像真实车友留言一样的中文评论，控制在25到{AI_PROMPT_MAX_CHARS}字。"
     "第一句或主要内容必须引用动态文字里的一个可核对事实（例如车型、里程、明确配置或具体场景）；图片只能补充你能直接看见的内容。"
@@ -108,37 +110,57 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
             "max_tokens": max_tokens,
             "stream": False,
         }
-        try:
-            response = request_session.post(
-                API_URL, json=payload,
-                headers={"Authorization": f"Bearer {api_key}"}, timeout=AI_TIMEOUT,
-            )
-        except requests.RequestException as exc:
-            print(f"[AI] request error={type(exc).__name__}: {exc}", flush=True)
-            raise CommentGenerationError("模型请求失败") from None
-        print(f"[AI] response status={response.status_code}", flush=True)
-        if response.status_code == 429:
-            print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
-            raise CommentGenerationError("模型服务繁忙（HTTP 429），请稍后重试")
-        if response.status_code in (401, 403):
-            print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
-            raise CommentGenerationError("模型 API Key 无效或无权限")
-        if response.status_code != 200:
-            print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
-            raise CommentGenerationError("模型服务返回失败")
-        try:
-            choice = response.json()["choices"][0]
-            finish_reason = choice["finish_reason"]
-            result = choice["message"]["content"]
-        except (ValueError, TypeError, KeyError, IndexError):
-            raise CommentGenerationError("模型响应格式无效") from None
-        if finish_reason != "stop" or not isinstance(result, str):
-            raise CommentGenerationError("模型输出未完成")
-        return result.strip()
+        endpoints = [getattr(request_session, "endpoint", API_URL) or API_URL]
+        for endpoint in (API_URL, FALLBACK_API_URL):
+            if endpoint not in endpoints:
+                endpoints.append(endpoint)
+        last_error = None
+        for endpoint in endpoints:
+            for attempt, delay in enumerate(AI_RETRY_DELAYS):
+                if delay:
+                    import time
+                    print(f"[AI] retrying endpoint={endpoint} after {delay}s (attempt {attempt + 1}/{len(AI_RETRY_DELAYS)})", flush=True)
+                    time.sleep(delay)
+                try:
+                    response = request_session.post(
+                        endpoint, json=payload,
+                        headers={"Authorization": f"Bearer {api_key}"}, timeout=AI_TIMEOUT,
+                    )
+                    print(f"[AI] response endpoint={endpoint} status={response.status_code}", flush=True)
+                    if response.status_code == 429:
+                        print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
+                        if attempt + 1 < len(AI_RETRY_DELAYS):
+                            continue
+                        raise CommentGenerationError("模型服务繁忙（HTTP 429），请稍后重试")
+                    if response.status_code in (401, 403):
+                        print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
+                        raise CommentGenerationError("模型 API Key 无效或无权限")
+                    if response.status_code != 200:
+                        print(f"[AI] response body={_response_text(response, api_key)}", flush=True)
+                        if attempt + 1 < len(AI_RETRY_DELAYS):
+                            continue
+                        break
+                    try:
+                        choice = response.json()["choices"][0]
+                        finish_reason = choice["finish_reason"]
+                        result = choice["message"]["content"]
+                    except (ValueError, TypeError, KeyError, IndexError):
+                        raise CommentGenerationError("模型响应格式无效") from None
+                    if finish_reason != "stop" or not isinstance(result, str):
+                        raise CommentGenerationError("模型输出未完成")
+                    return result.strip()
+                except CommentGenerationError:
+                    raise
+                except requests.RequestException as exc:
+                    last_error = exc
+                    print(f"[AI] request error endpoint={endpoint} attempt={attempt + 1}/{len(AI_RETRY_DELAYS)}: {type(exc).__name__}: {exc}", flush=True)
+                    if attempt + 1 == len(AI_RETRY_DELAYS):
+                        break
+        raise CommentGenerationError("模型请求失败") from None
 
     request_session = session or requests.Session()
-    endpoint = getattr(request_session, "endpoint", API_URL)
-    print(f"[AI] request endpoint={endpoint} model={model} images={len(images)}", flush=True)
+    endpoint = getattr(request_session, "endpoint", API_URL) or API_URL
+    print(f"[AI] request endpoints={endpoint} -> {API_URL} -> {FALLBACK_API_URL} model={model} images={len(images)}", flush=True)
     comment = _request_completion(parts)
 
     # 模型偶尔会忽略字数要求。不要直接把一次过长结果判废：
@@ -175,4 +197,4 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
     return comment
 
 
-__all__ = ["API_URL", "MAX_COMMENT_CHARS", "CommentGenerationError", "generate_comment"]
+__all__ = ["API_URL", "FALLBACK_API_URL", "MAX_COMMENT_CHARS", "CommentGenerationError", "generate_comment"]
