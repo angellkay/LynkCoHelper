@@ -94,9 +94,9 @@ jobs:
           LYNKCO_REFRESH_TOKEN: ${{ secrets.LYNKCO_REFRESH_TOKEN }}
           LYNKCO_DEVICE_ID: ${{ secrets.LYNKCO_DEVICE_ID }}
           LYNKCO_APP_SECRETS: ${{ secrets.LYNKCO_APP_SECRETS }}
-          LYNKCO_AI_PROVIDER: ${{ vars.LYNKCO_AI_PROVIDER || 'chatanywhere' }}
+          LYNKCO_AI_PROVIDER: chatanywhere
           CHATANYWHERE_API_KEY: ${{ secrets.CHATANYWHERE_API_KEY }}
-          CHATANYWHERE_MODEL: ${{ inputs.model || vars.CHATANYWHERE_MODEL || 'gpt-4o-mini' }}
+          CHATANYWHERE_MODEL: gpt-5.6-luna
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_MODEL: ${{ vars.GLM_MODEL || 'glm-4v-flash' }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
