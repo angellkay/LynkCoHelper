@@ -12,18 +12,6 @@ on:
         type: boolean
         required: true
         default: false
-      model:
-        description: "Manual test model (schedule uses CHATANYWHERE_MODEL repo variable)"
-        type: choice
-        required: true
-        default: "gpt-4o-mini"
-        options:
-          - gpt-4o-mini
-          - gpt-4.1-mini
-          - gpt-5.4-mini
-          - qwen3.5-plus
-          - gpt-5.6-luna
-
 permissions:
   contents: read
   actions: write
