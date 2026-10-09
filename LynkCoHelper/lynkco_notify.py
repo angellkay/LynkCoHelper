@@ -273,16 +273,6 @@ def build_markdown_report(result: dict) -> str:
 
     projected_days = _project_days(next_energy, daily_growth)
 
-    history = result.get("energy_history") or []
-    history_values = [
-        int(x.get("growth"))
-        for x in history
-        if isinstance(x, dict)
-        and str(x.get("growth", "")).lstrip("-").isdigit()
-    ]
-    avg_growth = (sum(history_values) / len(history_values)) if history_values else None
-    avg_projected_days = _project_days(next_energy, avg_growth)
-
     lines.append("\n### 💰 Co积分")
     try:
         delta = int(point_after) - int(point_before)
@@ -318,11 +308,6 @@ def build_markdown_report(result: dict) -> str:
             lines.append("- 按今日增幅预计：**今日无增加，暂无法估算**")
         elif daily_growth is not None and daily_growth < 0:
             lines.append("- 按今日增幅预计：**今日为负增长，暂无法估算**")
-    if avg_growth is not None:
-        lines.append(f"- 近7天平均：**+{avg_growth:.2f}/天**")
-        if avg_projected_days is not None:
-            lines.append(f"- 按近7天平均预计：**约 {avg_projected_days} 天**")
-
     if flow_details:
         lines.append("- 今日增加明细：")
         for reason, amount in flow_details:
