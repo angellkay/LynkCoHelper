@@ -275,7 +275,8 @@ def _run_comment_task_unlocked(max_comments: int, dry_run: bool, state_path: Pat
                     result["items"].append({"id": post_id, "status": "uncertain"})
                     status = "待核对｜勿重复提交"
                     break
-                except CommentPostError:
+                except CommentPostError as post_error:
+                    _log(f"发布被服务端拒绝 id={post_id} reason={post_error}")
                     del state["uncertain"][post_id]
                     try:
                         save_state_atomic(Path(state_path), state)
