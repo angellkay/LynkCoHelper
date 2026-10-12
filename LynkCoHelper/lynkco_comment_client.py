@@ -135,7 +135,11 @@ class CommentClient:
             raise CommentPostUncertain("comment transport result is uncertain; do not retry") from None
         if response.status_code != 200:
             if 400 <= response.status_code < 500 and response.status_code not in (408, 429):
-                raise CommentPostError(f"comment HTTP status {response.status_code}")
+                # Log only status and a short, sanitized body excerpt; never log request headers or tokens.
+                body_excerpt = " ".join((getattr(response, "text", "") or "").split())[:300]
+                raise CommentPostError(
+                    f"comment HTTP status {response.status_code}; response={body_excerpt or '<empty>'}"
+                )
             raise CommentPostUncertain("comment HTTP result is uncertain; do not retry")
         try:
             payload = response.json()
@@ -144,7 +148,16 @@ class CommentClient:
         if not isinstance(payload, dict):
             raise CommentPostUncertain("comment response could not confirm success; do not retry")
         if payload.get("code") != "success":
-            raise CommentPostError("comment was rejected by the server")
+            # Expose the server's business error without dumping the full response payload.
+            server_code = str(payload.get("code", ""))[:80]
+            server_message = str(
+                payload.get("message") or payload.get("msg") or payload.get("error") or ""
+            )
+            server_message = " ".join(server_message.split())[:300]
+            raise CommentPostError(
+                f"comment rejected by server; code={server_code or '<missing>'}; "
+                f"message={server_message or '<missing>'}"
+            )
         data = payload.get("data")
         comment_id = data.get("commentId") if isinstance(data, dict) else None
         if not isinstance(comment_id, (str, int)) or isinstance(comment_id, bool) or not str(comment_id).strip():
