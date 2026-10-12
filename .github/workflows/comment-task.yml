@@ -1,10 +1,7 @@
 name: LynkCo Comment Task
 
 on:
-  schedule:
-    # Daily at 09:17, 15:17, and 21:17 China time.
-    - cron: "17 9,15,21 * * *"
-      timezone: "Asia/Shanghai"
+  # 已关闭每日定时自动评论；仅保留手动触发。
   workflow_dispatch:
     inputs:
       publish:
