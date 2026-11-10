@@ -29,9 +29,13 @@ _META_PHRASES = (
     "作为AI模型", "作为一个AI", "请提供更多信息", "无法查看图片", "无法看到图片",
     "下面是评论", "忽略以上指令", "系统提示", "作为助手", "根据指令",
 )
-_PROMO_PHRASES = (
-    "关注", "点赞", "转发", "购买", "下单", "扫码", "优惠", "折扣", "领取",
-    "点击", "私信", "加微信", "加群", "加我", "联系", "拨打", "咨询", "链接",
+_PROMO_PATTERNS = (
+    # 只拦截明确的引流/推广表达，不把“优惠”“领取”等普通语境词单独当成广告。
+    re.compile(r"(?:欢迎|记得|请|求)?(?:关注|点赞|转发)(?:一下|支持)?"),
+    re.compile(r"(?:扫码|扫描二维码)(?:关注|添加|进群|领取|购买)?"),
+    re.compile(r"(?:私信|加微信|添加微信|加我微信|联系我|拨打|咨询我)(?:我|客服|了解)?"),
+    re.compile(r"(?:点击|打开)(?:这里|下方|主页)?(?:链接|入口|购买|领取)"),
+    re.compile(r"(?:立即|马上|赶紧|现在)(?:购买|下单|领取|抢购)"),
 )
 _CONTACT_PATTERN = re.compile(
     r"https?://|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}(?![a-z0-9-])|@[\w.-]+|(?<!\d)1[3-9]\d{9}(?!\d)",
@@ -178,24 +182,43 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
             ),
         }]
         comment = _request_completion(retry_parts, max_tokens=80)
-    if (not comment or len(comment) > MAX_COMMENT_CHARS or
-            any(phrase.casefold() in comment.casefold() for phrase in _META_PHRASES) or
-            any(phrase in comment for phrase in _PROMO_PHRASES) or
-            _CONTACT_PATTERN.search(comment) or
-            any(ord(char) < 32 for char in comment)):
-        print(f"[AI] rejected response={comment}", flush=True)
-        raise CommentGenerationError("模型评论内容无效")
-    # 始终要求评论与标题/正文存在可核对的文字锚点；图片可以补充细节，但不能绕过文字依据校验。
-    source_text = f"{title}\n{content}"
-    source_pairs = {text[index:index + 2] for text in _CHINESE_PAIR.findall(source_text)
-                    for index in range(len(text) - 1)}
-    comment_pairs = {text[index:index + 2] for text in _CHINESE_PAIR.findall(comment)
-                     for index in range(len(text) - 1)}
-    if not source_pairs.intersection(comment_pairs) and not \
-            _ascii_anchors(source_text).intersection(_ascii_anchors(comment)):
-        raise CommentGenerationError("模型评论缺少原文依据")
-    if len(comment) > AI_PROMPT_MAX_CHARS:
-        raise CommentGenerationError(f"模型评论超过{AI_PROMPT_MAX_CHARS}字")
+    # 校验失败时只追加重生成一次，避免单次模型措辞触发误判就放弃动态。
+    source_text = f"{title}\\n{content}"
+
+    def _validation_error(candidate):
+        if (not candidate or len(candidate) > MAX_COMMENT_CHARS or
+                any(phrase.casefold() in candidate.casefold() for phrase in _META_PHRASES) or
+                any(pattern.search(candidate) for pattern in _PROMO_PATTERNS) or
+                _CONTACT_PATTERN.search(candidate) or
+                any(ord(char) < 32 for char in candidate)):
+            return "模型评论内容无效"
+        source_pairs = {text[index:index + 2] for text in _CHINESE_PAIR.findall(source_text)
+                        for index in range(len(text) - 1)}
+        comment_pairs = {text[index:index + 2] for text in _CHINESE_PAIR.findall(candidate)
+                         for index in range(len(text) - 1)}
+        if not source_pairs.intersection(comment_pairs) and not \\
+                _ascii_anchors(source_text).intersection(_ascii_anchors(candidate)):
+            return "模型评论缺少原文依据"
+        if len(candidate) > AI_PROMPT_MAX_CHARS:
+            return f"模型评论超过{AI_PROMPT_MAX_CHARS}字"
+        return ""
+
+    rejection = _validation_error(comment)
+    if rejection:
+        print(f"[AI] validation rejected ({rejection}); retrying once", flush=True)
+        retry_parts = list(parts) + [{
+            "type": "text",
+            "text": (
+                "请重新写一条评论，只输出评论正文。必须紧扣原文中的具体细节，"
+                "表达自然简短；不要出现联系方式、网址、引流或推广号召，"
+                "不要使用广告口吻，也不要编造原文没有的信息。"
+            ),
+        }]
+        comment = _request_completion(retry_parts, max_tokens=80)
+        rejection = _validation_error(comment)
+        if rejection:
+            print(f"[AI] rejected response={comment} reason={rejection}", flush=True)
+            raise CommentGenerationError(rejection)
     print(f"[AI] generated chars={len(comment)} content={comment}", flush=True)
     return comment
 
