@@ -183,7 +183,7 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
         }]
         comment = _request_completion(retry_parts, max_tokens=80)
     # 校验失败时只追加重生成一次，避免单次模型措辞触发误判就放弃动态。
-    source_text = f"{title}\\n{content}"
+    source_text = f"{title}\n{content}"
 
     def _validation_error(candidate):
         if (not candidate or len(candidate) > MAX_COMMENT_CHARS or
@@ -196,8 +196,7 @@ def generate_comment(post: dict, api_key: str, model: str = "gpt-4o-mini", sessi
                         for index in range(len(text) - 1)}
         comment_pairs = {text[index:index + 2] for text in _CHINESE_PAIR.findall(candidate)
                          for index in range(len(text) - 1)}
-        if not source_pairs.intersection(comment_pairs) and not \\
-                _ascii_anchors(source_text).intersection(_ascii_anchors(candidate)):
+        if not source_pairs.intersection(comment_pairs) and not _ascii_anchors(source_text).intersection(_ascii_anchors(candidate)):
             return "模型评论缺少原文依据"
         if len(candidate) > AI_PROMPT_MAX_CHARS:
             return f"模型评论超过{AI_PROMPT_MAX_CHARS}字"
