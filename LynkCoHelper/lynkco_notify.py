@@ -151,7 +151,8 @@ def _extract_flow_details(resp: dict) -> list:
             continue
 
         item_date = _item_date_in_shanghai(item)
-        if item_date is not None and item_date != today:
+        # 日期无法识别时不纳入“今日流水”，避免把历史/未知记录误计入今天。
+        if item_date is None or item_date != today:
             continue
 
         amount = item.get(
