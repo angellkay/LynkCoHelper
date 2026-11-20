@@ -16,6 +16,7 @@ from lynkco_notify import (
     build_markdown_report,
     send_telegram_notification,
 )
+from lynkco_serverchan import send_serverchan_notification
 from lynkco_sign import LynkCoSignClient
 from lynkco_share import LynkCoShareClient
 
@@ -160,6 +161,15 @@ def run_and_notify() -> dict:
     except Exception as e:
         print(f"[警告] Telegram 推送失败（不影响签到/分享结果）: {e}")
         notify_results["telegram"] = {"skipped": True, "error": str(e)}
+
+    try:
+        notify_results["serverchan"] = send_serverchan_notification(
+            title="领克App · 每日任务",
+            markdown_body=markdown_body,
+        )
+    except Exception as e:
+        print(f"[警告] Server酱推送失败（不影响签到/分享结果）: {e}")
+        notify_results["serverchan"] = {"skipped": True, "error": str(e)}
 
     print("\n=== 推送结果 ===")
     print(json.dumps(mask_sensitive(notify_results), ensure_ascii=False, indent=2))
