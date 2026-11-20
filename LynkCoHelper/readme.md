@@ -4,7 +4,7 @@
 
 ## 简介
 
-领克 App「我的-签到」自动化脚本，支持每日签到、分享任务、积分查询，并可通过 Bark 推送结果。
+领克 App「我的-签到」自动化脚本，支持每日签到、分享任务、积分查询，并可通过 Telegram、Server酱推送结果。
 
 模块划分：
 
@@ -14,7 +14,8 @@
 | `lynkco_login.py` | token 获取统一入口 `load_token()`，含账号密码/短信验证码全流程登录 |
 | `lynkco_sign.py` | 每日签到逻辑 |
 | `lynkco_share.py` | 分享任务逻辑（可选功能） |
-| `lynkco_notify.py` | Bark 推送工具 |
+| `lynkco_notify.py` | Telegram 推送工具 |
+| `lynkco_serverchan.py` | Server酱 Turbo / Server酱³ 推送工具 |
 | `lynkco_daily_tasks.py` | 顶层入口：编排签到 + 分享 + 积分查询并推送结果 |
 
 原理、签名算法、接口协议等技术细节见 `docs/` 目录，此处只介绍如何使用。
@@ -75,14 +76,15 @@ pip install -r requirements.txt
     "glDevId": ""
   },
   "notify": {
-    "barkKey": ""
+    "barkKey": "",
+    "serverChanSendKey": ""
   }
 }
 ```
 
 - `user`：账号相关凭据（token 至少需要一个，见下）。
 - `secrets`：领克 App 的应用级签名密钥（非个人凭证，但代码中不内置，必须自行配置），获取方式见 `docs/AppSecret_逆向分析记录.md`。每个字段都支持用同名大写环境变量覆盖（如 `LYNKCO_NATIVE_APP_KEY`）；也可用一个整合环境变量 `LYNKCO_APP_SECRETS`（值为与 `secrets` 结构相同的 JSON 字符串）一次性提供全部 5 个字段，适合 CI 只想配置一个 Secret 的场景（优先级：单独字段环境变量 > `LYNKCO_APP_SECRETS` > `env.json`）。均未配置时程序会直接报错退出。
-- `notify`：推送相关配置，`barkKey` 为 Bark 推送 Key（可选，也可用环境变量 `LYNKCO_BARK_KEY` 覆盖）。
+- `notify`：推送相关配置。Telegram 可通过 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` 配置；Server酱可通过 `SERVERCHAN_SENDKEY` 配置（也可写入 `notify.serverChanSendKey`）。未配置的通道自动跳过，各通道失败互不影响。
 
 ### 3. 获取 token
 
@@ -97,7 +99,7 @@ pip install -r requirements.txt
 
 ```bash
 python3 lynkco_helper.py         # 签到 + 分享
-python3 lynkco_daily_tasks.py    # 签到 + 分享 + 积分查询 + Bark 推送
+python3 lynkco_daily_tasks.py    # 签到 + 分享 + 积分查询 + Telegram / Server酱 推送
 ```
 
 分享任务（`lynkco_share.py`）每日有加分次数上限，接口返回成功不代表真正加分，重复调用不会重复加分，详见 `docs/分享任务接口说明.md`。
@@ -106,7 +108,8 @@ python3 lynkco_daily_tasks.py    # 签到 + 分享 + 积分查询 + Bark 推送
 
 | 变量 | 说明 |
 | --- | --- |
-| `LYNKCO_BARK_KEY` | Bark 推送的 Key，未配置则跳过推送（也可写入 `env.json` 的 `notify.barkKey`） |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | Telegram Bot 推送凭据，均配置后启用 |
+| `SERVERCHAN_SENDKEY` | Server酱 SendKey，未配置则跳过（也可写入 `env.json` 的 `notify.serverChanSendKey`）；兼容 SCT 与 SC3 格式 |
 | `LYNKCO_ENERGY_DELAY` | 签到/分享后查询积分前的等待秒数，默认 5 |
 | `LYNKCO_BARK_ICON` | Bark 推送使用的图标 URL，默认使用领克官方图标 |
 
@@ -122,7 +125,8 @@ python3 lynkco_daily_tasks.py    # 签到 + 分享 + 积分查询 + Bark 推送
      {"nativeAppKey":"...","nativeAppSecret":"...","nativeAppCode":"...","loginAppCode":"...","glDevId":"..."}
      ```
      （如果不想合并配置，也可仍改用 5 个独立的 `LYNKCO_NATIVE_APP_KEY` 等 Secret，同时修改 workflow 中的 `env` 字段）。
-   - 可选：`LYNKCO_BARK_KEY`（daily-tasks 的 Bark 推送）。
+   - 可选：`TELEGRAM_BOT_TOKEN` 与 `TELEGRAM_CHAT_ID`（Telegram 推送）。
+   - 可选：`SERVERCHAN_SENDKEY`（Server酱推送；SCT 或 SC3 SendKey 均可）。
 3. 可在 `Actions` 页面手动触发一次 workflow 测试。
 4. 仅配置 `LYNKCO_TOKEN` 时，token 失效后需要手动更新；配置 `refreshToken` 后可自动续期，仅需在其过期（约 30 天）时才需人工干预。
 
