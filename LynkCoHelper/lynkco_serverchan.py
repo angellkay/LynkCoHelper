@@ -27,7 +27,7 @@ def send_serverchan_notification(title: str, markdown_body: str,
 
     # Server酱 Turbo 使用 SCT；Server酱³ 使用 sctp{uid}t... 格式。
     if sendkey.startswith("sctp"):
-        match = re.match(r"^sctp(\\d+)t", sendkey)
+        match = re.match(r"^sctp(\d+)t", sendkey)
         if not match:
             raise ValueError("Server酱³ SendKey 格式不正确（应为 sctp{uid}t...）")
         url = f"https://{match.group(1)}.push.ft07.com/send/{sendkey}.send"
